@@ -1,0 +1,53 @@
+# Local credentials and environments
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+# Build, editor and dependency output
+node_modules/
+.next/
+out/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.DS_Store
+.vscode/
+# Confidential runtime storage belongs OUTSIDE this repository
+private/
+private-data/
+data/
+workspace/
+workspaces/
+snapshots/
+imports/
+exports/
+candidates/
+logs/
+*.log
+# Manufacturing and archive inputs: synthetic test exceptions only
+*.zip
+*.7z
+*.rar
+*.gbx
+*.GBX
+*.gbr
+*.GBR
+*.pcb
+*.PCB
+*.pos
+*.odb
+*.xlsx
+*.xls
+*.csv
+*.xml
+*.jpg
+*.jpeg
+*.png
+!tests/synthetic/**/
+!tests/synthetic/**/*.csv
+!tests/synthetic/**/*.xml
+!tests/synthetic/**/*.json

@@ -1,0 +1,32 @@
+/* SCAN semantic design tokens. Newly authored foundation; no runtime dependency. */
+:root,
+.dark {
+  color-scheme: dark;
+  --scan-background: #07111d;
+  --scan-foreground: #e2e8f0;
+  --scan-panel: #0d1929;
+  --scan-chrome: #091522;
+  --scan-border: #334155;
+  --scan-muted-text: #94a3b8;
+  --scan-muted-surface: #142236;
+  --scan-primary: #38bdf8;
+  --scan-primary-strong: #0ea5e9;
+  --scan-primary-foreground: #07111d;
+  --scan-accent-surface: #10243a;
+  --scan-info-surface: #0b2630;
+  --scan-verified: #6ee7b7;
+  --scan-warning: #fcd34d;
+  --scan-blocked: #fda4af;
+  --scan-radius: 0.625rem;
+  --scan-sidebar-width: 228px;
+  --scan-header-height: 80px;
+  --scan-motion-fast: 160ms;
+  --scan-font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root,
+  .dark {
+    --scan-motion-fast: 0ms;
+  }
+}
