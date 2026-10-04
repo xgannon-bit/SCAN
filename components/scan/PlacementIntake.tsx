@@ -10,14 +10,14 @@ import styles from "./PlacementIntake.module.css";
 const columnName = (index: number): string => index > 26 ? columnName(Math.floor((index - 1) / 26)) + String.fromCharCode(65 + (index - 1) % 26) : String.fromCharCode(64 + index);
 
 export function PlacementIntake() {
-  const { file, preview, result, config, sheet, delimiter, busy, error, edit, changeFile, changeSheet, changeDelimiter, reset, cancel, run, download } = useScanSession();
+  const { file, preview, result, config, sheet, delimiter, busy, edit, changeFile, changeSheet, changeDelimiter, cancel, run, download } = useScanSession();
   const fileInput = useRef<HTMLInputElement>(null);
   useEffect(() => { if (!file && fileInput.current) fileInput.current.value = ""; }, [file]);
 
   return <div className={styles.page}>
     <div className={styles.header}>
       <p>Read your placement spreadsheet and review its coordinates locally.</p>
-      <Button variant="outline" onClick={reset}><X size={16} /> Clear file</Button>
+      <Button variant="outline" onClick={() => changeFile(null)}><X size={16} /> Clear file</Button>
     </div>
     <section className={styles.panel} aria-labelledby="source-title">
       <h2 id="source-title">1. Select source</h2>
@@ -46,7 +46,6 @@ export function PlacementIntake() {
       </fieldset>
       <Button disabled={busy} onClick={() => run("normalize")}>Validate placements</Button>
     </section>}
-    {error && <p role="alert" className={styles.error}>{error}</p>}
     {result && <section className={styles.panel} aria-labelledby="result-title">
       <h2 id="result-title">3. Placement review</h2>
       <p role="status"><strong>{result.status === "success" ? "Placement parsing complete" : "Placement review needs attention"}</strong> · {result.counts.parsed} parsed · {result.counts.errors} errors · {result.counts.warnings} warnings · {result.counts.skippedBlank} blank rows skipped</p>

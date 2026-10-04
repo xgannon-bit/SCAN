@@ -38,8 +38,13 @@ coordinates and source identity. It currently has no board graphics or overlays.
 Client navigation and browser Back/Forward preserve the selected file, mapping,
 preview, result and placement selection. Returning to intake may show an empty
 browser file chooser, but the selected filename remains visible above it and
-Read file still uses that file. No localStorage, sessionStorage, database or
-saved-session restore is involved; refresh/close clears the session.
+Read file still uses that file. No localStorage, sessionStorage or database is
+used. Refresh/close clears memory. Save review downloads original source bytes,
+mapping, selected row and bounded user notes; Open saved review validates the
+saved document and source hash and runs fresh local parsing. Stored derived
+results are not accepted. A valid source whose saved settings fail parsing is
+restored as an editable draft. Corrupt/unsupported saved files leave the current
+source untouched. Review files are confidential runtime documents, not fixtures.
 
 Source, worksheet and delimiter changes invalidate preview, result and selection.
 Mapping edits invalidate result and selection. Clearing during an import aborts

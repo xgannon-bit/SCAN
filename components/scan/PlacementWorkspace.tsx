@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { useScanSession } from "./ScanSession";
 
 export function PlacementWorkspace() {
-  const { result, selectedRow, setSelectedRow } = useScanSession();
+  const { result, selectedRow, setSelectedRow, notes, editNote, busy } = useScanSession();
   const selected = result?.placements.find(placement => placement.sourceRow === selectedRow);
   if (!result) return <section className="scan-panel scan-panel-body"><h2>Validate a placement source first</h2><p>Read and map a placement file in Source intake. Its parsed coordinates will appear here.</p><Link href="/intake" className={buttonVariants()}>Go to source intake</Link></section>;
   return <div className="scan-content-stack">
@@ -21,7 +21,9 @@ export function PlacementWorkspace() {
         ["Module", selected.module], ["Board side", selected.side], ["Reference", selected.refdes], ["MPN", selected.mpn ?? "Unknown"], ["Footprint", selected.footprint ?? "Unknown"], ["Source row", selected.sourceRow],
         ["X (mm)", selected.xMm ?? "Unconfirmed"], ["Y (mm)", selected.yMm ?? "Unconfirmed"], ["Rotation (CCW degrees)", selected.rotationCcwDegrees ?? "Unconfirmed"],
         ["Source X", selected.sourceCoordinates.x], ["Source Y", selected.sourceCoordinates.y], ["Source rotation", selected.sourceCoordinates.rotation],
-      ].map(([label, value]) => <div key={String(label)}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><details><summary>Placement and source identity</summary><p className="scan-hash">Placement ID: {selected.placementId}</p><p className="scan-hash">Source SHA-256: {result.sourceSha256}</p></details></> : <p>Select a placement above to inspect its identity and source coordinates.</p>}
+      ].map(([label, value]) => <div key={String(label)}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><details><summary>Placement and source identity</summary><p className="scan-hash">Placement ID: {selected.placementId}</p><p className="scan-hash">Source SHA-256: {result.sourceSha256}</p></details>
+        <label className="scan-field scan-note-field">Placement review note<textarea disabled={busy} value={notes[`row:${selected.sourceRow}`] ?? ""} maxLength={2000} onChange={event => editNote(`row:${selected.sourceRow}`, event.target.value)} placeholder="Record evidence or machine-side work for this exact source row" /></label><p className="scan-caption">Notes are unverified engineering annotations. They do not resolve parser holds or authorize native changes.</p>
+      </> : <p>Select a placement above to inspect its identity and source coordinates.</p>}
         <p className="scan-caption">Confirmed units convert to millimeters and confirmed rotations to counterclockwise degrees. No origin shift, Gerber alignment or bottom-side mirror is applied. Board graphics, pad ownership and native inspection overlays are not available yet.</p>
       </div>
     </section>

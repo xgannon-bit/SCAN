@@ -661,7 +661,7 @@ button:disabled {
 .scan-session-strip span, .scan-session-note { color: var(--scan-muted-text); }
 .scan-workflow-step { flex-wrap: wrap; align-content: center; gap: 5px 8px; }
 .scan-workflow-step small { width: 100%; padding-left: 20px; color: var(--scan-muted-text); }
-.scan-content-stack { display: grid; gap: 18px; }
+.scan-content-stack { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 18px; }
 .scan-dashboard-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .scan-session-hero { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 26px; border: 1px solid rgba(56, 189, 248, .3); border-radius: var(--scan-radius); background: var(--scan-accent-surface); }
 .scan-session-hero h2 { font-size: 22px; margin: 7px 0; }
@@ -687,12 +687,29 @@ button:disabled {
 .scan-session-note { margin-top: 24px; font-size: 12px; line-height: 1.6; }
 .scan-demo-link { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--scan-muted-text); }
 .scan-demo-link a, .scan-inline-warning a { color: var(--scan-primary); text-decoration: underline; }
-.scan-field { display: grid; gap: 8px; font-size: 14px; }
+.scan-field { display: grid; min-width: 0; gap: 8px; font-size: 14px; }
 .scan-field select { width: 100%; min-width: 0; border: 1px solid var(--scan-border); border-radius: 8px; background: var(--scan-background); color: var(--scan-foreground); min-height: 44px; padding: 10px; }
 .scan-inline-warning { border: 1px solid var(--scan-warning); border-radius: 8px; padding: 14px; color: var(--scan-warning); font-size: 13px; }
 .scan-issue-list { margin: 16px 0; padding-left: 22px; font-size: 14px; }
 .scan-issue-list li { margin: 12px 0; }
 .scan-issue-list p { margin: 4px 0; }
+.scan-review-controls { margin: 0 0 18px; padding: 12px 16px; border: 1px solid var(--scan-border); border-radius: 8px; background: var(--scan-panel); }
+.scan-review-controls .scan-actions { margin: 0; }
+.scan-review-controls p { margin: 9px 0 0; color: var(--scan-muted-text); font-size: 12px; line-height: 1.5; }
+.scan-note-field { margin-top: 18px; }
+.scan-field textarea, .scan-field input { width: 100%; min-width: 0; color: var(--scan-foreground); background: var(--scan-background); border: 1px solid var(--scan-border); border-radius: 8px; padding: 10px; }
+.scan-field textarea { min-height: 88px; resize: vertical; }
+textarea:focus-visible { outline: 2px solid var(--scan-primary); outline-offset: 2px; }
+.scan-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 18px 0; }
+.scan-filters .scan-field { min-width: 150px; flex: 1; }
+.scan-finding-card { border: 1px solid var(--scan-border); border-radius: 8px; padding: 15px; margin: 12px 0; }
+.scan-finding-card h3 { font-size: 14px; }
+.scan-archive-fields { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr); gap: 14px; border: 0; padding: 0; margin: 20px 0; }
+.scan-archive-result { margin-top: 22px; }
+.scan-json-evidence { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: var(--scan-background); font-size: 12px; max-height: 400px; overflow-y: auto; }
+.scan-intake-links { display: flex; gap: 20px; flex-wrap: wrap; font-size: 13px; color: var(--scan-primary); }
+.scan-intake-links a { text-decoration: underline; }
+#archive-intake, #source-title { scroll-margin-top: 100px; }
 @media (max-width: 1200px) {
   .scan-grid { grid-template-columns: 1fr 1.7fr; }
   .scan-evidence-panel { grid-column: 1 / -1; }

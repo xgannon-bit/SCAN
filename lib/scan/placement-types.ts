@@ -24,9 +24,14 @@ export type PlacementResult = {
   status: "success" | "blocked";
   artifactType: "scan.normalized-placements";
   sourceSha256: string;
+  schemaVersion: "1";
+  sheetIndex: number;
+  mapping: PlacementConfig;
+  coordinateFrame: string;
+  coverage: { represented: null; enabled: null; taught: null; verified: null; released: null };
   counts: { sourceRows: number; parsed: number; skippedBlank: number; errors: number; warnings: number };
   holds: string[];
-  issues: { row: number; severity: string; message: string }[];
+  issues: { row: number; severity: "error" | "warning"; code: "DUPLICATE_IDENTITY" | "MPN_MISSING" | "SOURCE_ROW_INVALID"; message: string }[];
   placements: { placementId: string; module: string; side: string; refdes: string; mpn: string | null; footprint: string | null; sourceRow: number; sourceCoordinates: { x: string; y: string; rotation: string }; xMm: string | null; yMm: string | null; rotationCcwDegrees: string | null }[];
   machineExportAllowed: false;
 };

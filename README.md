@@ -18,12 +18,19 @@ It reads local XLSX/CSV, supports combined or separate XY columns, validates
 explicit units/rotation/identity, and downloads a normalized placement JSON.
 This is not a native machine job. Install the pinned Python worker dependencies
 in `.venv` as described in that guide before starting the app.
-File, mapping, results and exact source-row selection survive navigation within
-these screens. They reset on refresh or Clear session; no browser storage is used.
+File, mapping, results, notes and exact source-row selection survive navigation.
+Use **Save review** before refresh or close, then **Open saved review** to restore
+the embedded placement source and reparse it locally. No browser storage is used.
+Source findings link to exact rows; `/handoff` exports all findings, parsed
+placements and remaining work, including blocked reviews. See the
+[connected demo workflow](docs/demo-workflow.md).
 
-The CLI also provides [snapshot preflight](docs/snapshot-preflight.md): independent
+The UI and CLI provide [snapshot preflight](docs/snapshot-preflight.md): independent
 capture-hash and full asset verification, safe XML envelope inspection and an
 explicit report of unsupported native checks. It produces no machine candidate.
+In Source intake, select an existing job ZIP, inventory it, explicitly select
+the job/master snapshots and capture/verify them. Save the source snapshot and
+preflight report separately from the placement review.
 
 A [synthetic walkthrough](docs/synthetic-demo.md) is available at `/demo`.
 It demonstrates exact placement selection and simulated review decisions with

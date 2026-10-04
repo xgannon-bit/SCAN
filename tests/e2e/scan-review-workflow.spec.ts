@@ -1,0 +1,148 @@
+import { test, expect, type Page } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { makeArchive, syntheticSelection } from '../synthetic-archive.mjs';
+
+const nav = (page: Page, name: string) => page.getByRole('navigation', { name: 'SCAN screens' }).getByRole('link', { name, exact: true });
+const file = { name: 'authored-review.csv', mimeType: 'text/csv', buffer: Buffer.from('R7,FIRST,,"1,2",Top,0,SYNTHETIC\nR7,SECOND,,"3,4",Top,90,SYNTHETIC\nD1,,,"5,6",Top,180,SYNTHETIC\n') };
+async function validate(page: Page) {
+  await page.goto('/intake');
+  await page.getByLabel('Placement file (.xlsx or .csv)', { exact: true }).setInputFiles(file);
+  await page.getByRole('button', { name: 'Read file', exact: true }).click();
+  await expect(page.getByText('3 source rows')).toBeVisible();
+  await page.getByLabel('Module for this sheet').fill('FICTIONAL-MODULE');
+  await page.getByLabel('Placement units').selectOption('mm');
+  await page.getByLabel('Source rotation direction').selectOption('ccw');
+  await page.getByRole('button', { name: 'Validate placements' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Placement review needs attention' })).toBeVisible();
+}
+async function download(page: Page, name: string) {
+  const pending = page.waitForEvent('download'); await page.getByRole('button', { name, exact: true }).click();
+  const item = await pending; return readFile((await item.path())!);
+}
+
+test('blocked review follows exact rows, saves, reparses after reload and exports all remaining work', async ({ page, baseURL }, info) => {
+  const errors: string[] = [], external: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('request', request => { if (new URL(request.url()).origin !== baseURL) external.push(request.url()); });
+  await validate(page);
+  await nav(page, 'Source findings').click();
+  await page.getByRole('link', { name: 'Inspect source row 2', exact: true }).click();
+  await expect(page.getByLabel('Placement to inspect')).toHaveValue('2');
+  await expect(page.getByRole('region', { name: 'Selected placement', exact: true })).toContainText('SECOND');
+  await page.getByLabel('Placement review note').fill('Check duplicate scope with engineer; not approved.');
+  await nav(page, 'Job dashboard').click();
+  await page.getByLabel('Review notes', { exact: true }).fill('Authored demo handoff only.');
+  const saved = await download(page, 'Save review');
+  const record = JSON.parse(saved.toString());
+  expect(Buffer.from(record.source.base64, 'base64')).toEqual(file.buffer);
+  expect(record.selectedRow).toBe(2);
+  expect(record.validated).toBe(true);
+  expect(record.machineExportAllowed).toBe(false);
+  await nav(page, 'Review handoff').click();
+  const handoff = JSON.parse((await download(page, 'Download complete review (.json)')).toString());
+  expect(handoff.placements).toHaveLength(3);
+  expect(handoff.placementResult.status).toBe('blocked');
+  expect(handoff.workItems.find((item: { sourceRow: number }) => item.sourceRow === 2).annotation).toContain('not approved');
+  expect(handoff.readiness.packageComplete).toBeNull();
+  const readable = (await download(page, 'Download readable handoff (.txt)')).toString();
+  expect(readable).toContain('Authored demo handoff only.');
+  expect(readable).toContain('Row 3 | FICTIONAL-MODULE | Top | D1');
+  await page.screenshot({ path: info.outputPath('review-handoff.png'), fullPage: true });
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Download complete review (.json)' })).toBeDisabled();
+  let reparses = 0;
+  page.on('request', request => { if (request.url().endsWith('/api/placements')) reparses++; });
+  await page.getByLabel('Saved placement review file', { exact: true }).setInputFiles({ name: 'demo.scan-review.json', mimeType: 'application/json', buffer: saved });
+  await expect(page.getByRole('status').filter({ hasText: 'Review reopened.' })).toBeVisible();
+  expect(reparses).toBe(2);
+  await nav(page, 'Board workspace').click();
+  await expect(page.getByLabel('Placement to inspect')).toHaveValue('2');
+  await expect(page.getByLabel('Placement review note')).toHaveValue('Check duplicate scope with engineer; not approved.');
+  await expect(page.getByRole('status').filter({ hasText: 'unresolved holds' })).toBeVisible();
+  const tampered = structuredClone(record); tampered.source.sha256 = '0'.repeat(64);
+  await page.getByLabel('Saved placement review file', { exact: true }).setInputFiles({ name: 'tampered.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(tampered)) });
+  await expect(page.getByRole('main').getByRole('alert')).toContainText('do not match their hash');
+  await expect(page.getByLabel('Placement to inspect')).toHaveValue('2');
+  await expect(page.getByLabel('Placement review note')).toHaveValue('Check duplicate scope with engineer; not approved.');
+  await nav(page, 'Source findings').click();
+  await page.getByLabel('Find issue by reference, row or reason').fill('D1');
+  await expect(page.getByRole('link', { name: 'Inspect source row 3', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Inspect source row 2', exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(errors).toEqual([]); expect(external).toEqual([]);
+});
+
+test('archive selection is explicit, survives navigation and downloads the exact verified capture', async ({ page, baseURL }, info) => {
+  const errors: string[] = [], external: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('request', request => { if (new URL(request.url()).origin !== baseURL) external.push(request.url()); });
+  const archive = { name: 'authored-reference.zip', mimeType: 'application/zip', buffer: makeArchive() };
+  await page.goto('/intake');
+  await page.getByLabel('Native job archive (.zip)').setInputFiles(archive);
+  await page.getByRole('button', { name: 'Inventory archive', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Job root', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Capture and verify selection' })).toBeDisabled();
+  await page.getByRole('combobox', { name: 'Job root', exact: true }).selectOption(syntheticSelection.root);
+  const job = JSON.stringify({ role: 'temp', member: 'Fictional/Board/Board_Temp.xml' });
+  const master = JSON.stringify({ role: 'temp', member: 'Fictional/Master/Master_Temp.xml' });
+  await page.getByRole('combobox', { name: 'Job snapshot', exact: true }).selectOption(job);
+  await expect(page.getByRole('button', { name: 'Capture and verify selection' })).toBeDisabled();
+  await nav(page, 'Job dashboard').click();
+  await expect(page.getByRole('region', { name: 'Existing job archive', exact: true })).toContainText(archive.name);
+  await page.getByRole('link', { name: 'Open archive intake', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Job snapshot', exact: true })).toHaveValue(job);
+  await page.getByRole('combobox', { name: 'Master snapshot', exact: true }).selectOption(master);
+  await page.getByRole('button', { name: 'Capture and verify selection' }).click();
+  await expect(page.getByRole('heading', { name: 'Snapshot integrity verified; native preparation blocked' })).toBeVisible();
+  const review = JSON.parse((await download(page, 'Save archive report (JSON)')).toString());
+  expect(review.preflight.selection.job.role).toBe('temp');
+  expect(review.preflight.selection.master.role).toBe('temp');
+  expect(review.preflight.nativeSchemaSupported).toBe(false);
+  const snapshot = await download(page, 'Save source snapshot');
+  expect(createHash('sha256').update(snapshot).digest('hex')).toBe(review.capture.packageSha256);
+  expect(snapshot.length).toBe(review.capture.size);
+  await nav(page, 'Review handoff').click();
+  const text = (await download(page, 'Download readable handoff (.txt)')).toString();
+  expect(text).toContain('temp | Fictional/Board/Board_Temp.xml');
+  expect(text).toContain(review.capture.packageSha256);
+  await page.screenshot({ path: info.outputPath('native-preflight-handoff.png'), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await nav(page, 'Source intake').click();
+  await page.getByRole('combobox', { name: 'Master snapshot', exact: true }).selectOption('none');
+  await expect(page.getByRole('button', { name: 'Save source snapshot' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Capture and verify selection' }).click();
+  await expect(page.getByRole('heading', { name: 'Snapshot integrity verified; native preparation blocked' })).toBeVisible();
+  const noMaster = JSON.parse((await download(page, 'Save archive report (JSON)')).toString());
+  expect(noMaster.preflight.selection.master).toBeNull();
+  expect(noMaster.preflight.holds.some((hold: { code: string }) => hold.code === 'MASTER_NOT_SELECTED')).toBe(true);
+  await page.getByRole('button', { name: 'Clear archive' }).click();
+  await nav(page, 'Review handoff').click();
+  await expect(page.getByRole('button', { name: 'Download complete review (.json)' })).toBeDisabled();
+  expect(errors).toEqual([]); expect(external).toEqual([]);
+});
+
+test('archive HTTP boundary rejects cross-origin, path injection and duplicate fields', async ({ request, baseURL }) => {
+  expect((await request.post('/api/archive', { data: 'not parsed' })).status()).toBe(403);
+  const file = { name: 'authored.zip', mimeType: 'application/zip', buffer: makeArchive() };
+  const unknown = await request.post('/api/archive', { headers: { Origin: baseURL! }, multipart: { file, action: 'inventory', expectedArchiveSha256: '', selection: 'null', expectedPackageSha256: '', source: 'C:/must-not-be-read.zip' } });
+  expect(unknown.status()).toBe(400);
+  expect((await unknown.json()).message).toContain('unknown');
+  const wrong = await request.post('/api/archive', { headers: { Origin: baseURL! }, multipart: { file, action: 'preflight', expectedArchiveSha256: '0'.repeat(64), selection: JSON.stringify(syntheticSelection), expectedPackageSha256: '' } });
+  expect((await wrong.json()).status).toBe('blocked');
+});
+
+test('saved draft with an incorrect worksheet reopens as an editable source', async ({ page }) => {
+  await page.goto('/intake');
+  await page.getByLabel('Placement file (.xlsx or .csv)', { exact: true }).setInputFiles(file);
+  await page.getByLabel('Worksheet index').fill('1');
+  const saved = await download(page, 'Save review');
+  await page.reload();
+  await page.getByLabel('Saved placement review file', { exact: true }).setInputFiles({ name: 'draft.json', mimeType: 'application/json', buffer: saved });
+  await expect(page.getByRole('main').getByRole('alert')).toContainText('Saved source and notes restored');
+  await expect(page.getByLabel('Worksheet index')).toHaveValue('1');
+  await expect(page.getByRole('button', { name: 'Read file', exact: true })).toBeEnabled();
+  await page.getByLabel('Worksheet index').fill('0');
+  await page.getByRole('button', { name: 'Read file', exact: true }).click();
+  await expect(page.getByText('3 source rows')).toBeVisible();
+});

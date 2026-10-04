@@ -232,10 +232,10 @@ def normalize(table: Table, data: bytes, config: dict) -> dict:
             footprint = _identifier(cell('footprint'), required=False)
             identity = (module.casefold(), side, refdes.casefold())
             if identity in seen:
-                issues.append({'row': row_number, 'severity': 'error', 'message': f'Duplicate module/side/reference identity; also present at row {seen[identity]}.'})
+                issues.append({'row': row_number, 'severity': 'error', 'code': 'DUPLICATE_IDENTITY', 'message': f'Duplicate module/side/reference identity; also present at row {seen[identity]}.'})
             else: seen[identity] = row_number
             if mpn is None:
-                issues.append({'row': row_number, 'severity': 'warning', 'message': 'MPN is missing; component identity is unresolved.'})
+                issues.append({'row': row_number, 'severity': 'warning', 'code': 'MPN_MISSING', 'message': 'MPN is missing; component identity is unresolved.'})
             converted_angle = None
             # Source cells are capped at 2,048 chars and exponents at three digits.
             # A larger bounded context preserves all allowed decimal digits.
@@ -253,7 +253,7 @@ def normalize(table: Table, data: bytes, config: dict) -> dict:
                             'sourceRow': row_number, 'sourceCoordinates': {'x': str(x), 'y': str(y), 'rotation': str(angle)},
                             'xMm': x_mm, 'yMm': y_mm, 'rotationCcwDegrees': converted_angle})
         except IntakeError as error:
-            issues.append({'row': row_number, 'severity': 'error', 'message': str(error)})
+            issues.append({'row': row_number, 'severity': 'error', 'code': 'SOURCE_ROW_INVALID', 'message': str(error)})
     errors = sum(i['severity'] == 'error' for i in issues)
     warnings = len(issues) - errors
     if errors: holds.append('Resolve all row errors; partial results are not a complete placement set.')

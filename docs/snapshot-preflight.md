@@ -2,8 +2,10 @@
 
 Implemented: independent verification of an A04 `.scan-snapshot` and bounded
 read-only XML envelope inspection. This is the first A05 increment, not a complete
-native semantic reader or dependency resolver. The browser remains the tested
-A07 placement importer; this new action is CLI-only.
+native semantic reader or dependency resolver. The connected browser workflow
+now invokes inventory, explicit capture and this preflight from Source intake;
+see [demo workflow](demo-workflow.md) for limits and downloads. The direct
+inspect-snapshot request below remains available through the CLI.
 
 Use the pinned `.venv` interpreter from the repository root. Send one UTF-8 JSON
 request to `workers.scan.worker_cli`:
@@ -47,8 +49,8 @@ copy, and verifies that copy has exactly the expected bytes. It then verifies:
 
 No member name becomes an extraction path. Temporary files use fixed opaque names
 in an owned OS temporary directory, removed on normal success/failure. An abnormal
-process/OS crash can leave temporary files. The CLI host must enforce cancellation
-and a wall-clock timeout; the browser does not yet invoke this action.
+process/OS crash can leave temporary files. The browser host enforces cancellation
+and a 120-second worker timeout; direct CLI callers must enforce their own timeout.
 
 Limits are independent of the manifest's recorded limits. Current reader limits:
 620 MB outer package, 20 MB manifest, 100 MB original ZIP, 250 MB per inner file,

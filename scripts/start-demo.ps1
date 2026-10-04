@@ -63,8 +63,9 @@ try {
 
   Write-Output "SCAN checkout: $scanRoot"
   Write-Output "Node.js: $scanNodeText"
-  Write-Output "Demo URL: http://127.0.0.1:$Port/demo"
-  Write-Output "Placement intake: http://127.0.0.1:$Port/intake"
+  Write-Output "SCAN dashboard: http://127.0.0.1:$Port/"
+  Write-Output "Source intake: http://127.0.0.1:$Port/intake"
+  Write-Output "Optional fictional walkthrough: http://127.0.0.1:$Port/demo"
   if ($CheckOnly) {
     Write-Output 'Preflight passed: Node/npm, Next dependency and loopback port are available. No build or running server was verified.'
     exit 0
@@ -78,7 +79,7 @@ try {
     & npm.cmd run build
     if ($LASTEXITCODE -ne 0) { throw 'Production build failed. SCAN was not started; fix the build error and retry.' }
     Write-Output "Build ID: $(Get-Content -LiteralPath (Join-Path $scanRoot '.next\BUILD_ID') -Raw)"
-    Write-Output "Open http://127.0.0.1:$Port/demo in your browser. Keep this window open; Ctrl+C stops SCAN."
+    Write-Output "Open http://127.0.0.1:$Port/ in your browser. Keep this window open; Ctrl+C stops SCAN."
     & npm.cmd run start
     if ($LASTEXITCODE -ne 0) { throw "SCAN stopped with exit code $LASTEXITCODE." }
   } finally {
