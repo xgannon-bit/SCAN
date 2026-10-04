@@ -11,6 +11,10 @@ acceptance. See [local setup and limits](docs/ui-foundation.md). This is not an
 installed analyzer, machine-compatible job writer, or released AOI program.
 Capability descriptions below are development goals, not completed functionality.
 
+A [synthetic walkthrough](docs/synthetic-demo.md) is available at `/demo`.
+It demonstrates exact placement selection and simulated review decisions with
+fictional data; it does not analyze files or produce machine jobs.
+
 ## Intended workflow
 
 Open a local job snapshot -> analyze source evidence -> inspect board overlays -> review a proposed correction -> export a debug queue or a separately named, supported repair candidate.

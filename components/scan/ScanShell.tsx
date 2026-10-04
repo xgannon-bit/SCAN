@@ -1,7 +1,7 @@
 "use client";
 
 import { FolderOpen, Info, Layers, LockKeyhole, ScanLine, Search } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -226,6 +226,7 @@ export function ScanShell() {
           ))}
         </section>
         <p className="mt-3 text-xs text-muted-foreground">— means unknown, not zero. Representation, enabled inspection, teaching, verification and release are separate states.</p>
+        <a href="/demo" className={buttonVariants({ variant: "outline", className: "mt-4" })}>Explore synthetic demo</a>
       </main>
     </div>
   );

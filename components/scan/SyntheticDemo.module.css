@@ -1,0 +1,59 @@
+.demo { font-size: 14px; }
+.demo p { line-height: 1.65; margin: 10px 0 16px; }
+.demo h3 { font-size: 17px; font-weight: 650; }
+.demo h4 { font-size: 14px; font-weight: 650; }
+.demo code { font-size: 11px; overflow-wrap: anywhere; }
+.banner { flex-direction: column; gap: 0; align-items: flex-start; }
+.stageHeading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 22px 0 16px; }
+.stageHeading h2 { font-size: 22px; font-weight: 600; margin-top: 4px; }
+.stageHeading h2:focus { outline-offset: 6px; }
+.intake { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 32px; padding: 32px; }
+.intakeCopy h3 { margin-top: 18px; font-size: 24px; }
+.sourceCard { background: var(--scan-muted-surface); border: 1px solid var(--scan-border); border-radius: 8px; padding: 22px; }
+.sourceCard h3 { margin-top: 15px; }
+.facts div { padding: 10px 0; }
+.facts dt, .identity dt { color: var(--scan-muted-text); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.facts dd { margin-top: 3px; }
+.identity { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+.identity div:last-child { grid-column: 1 / -1; }
+.identity dd { margin: 3px 0 0; font-family: ui-monospace, monospace; font-size: 12px; overflow-wrap: anywhere; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.boardLayout { display: grid; grid-template-columns: minmax(245px, .8fr) minmax(0, 1.65fr); gap: 14px; }
+.findingList { padding: 10px; display: grid; gap: 8px; }
+.finding { width: 100%; height: auto; padding: 14px; display: flex; flex-direction: column; align-items: stretch; gap: 8px; white-space: normal; text-align: left; border: 1px solid var(--scan-border); }
+.finding[aria-pressed="true"] { background: var(--scan-accent-surface); border-color: var(--scan-primary); }
+.findingTop { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; }
+.muted, .boardCaption, .footer { color: var(--scan-muted-text); font-size: 12px; }
+.boardDrawing { padding: 22px 16px 8px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; background: var(--scan-background); }
+.boardTile { color: var(--scan-muted-text); border: 1px dashed var(--scan-border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; justify-content: space-between; gap: 10px; min-width: 0; }
+.boardTile > span { font-size: 11px; }
+.boardTile > strong { font-size: 11px; }
+.boardTile svg { width: 100%; height: 90px; }
+.selectedTile { color: var(--scan-primary); border: 2px solid var(--scan-primary); background: var(--scan-accent-surface); }
+.boardCaption { padding: 0 18px; }
+.selection { padding: 6px 20px 22px; }
+.detail { padding: 26px; }
+.detailTitle { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+.evidenceGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin: 22px 0; }
+.comparison { background: var(--scan-muted-surface); border: 1px solid var(--scan-border); border-radius: 8px; padding: 20px; }
+.queue { display: grid; gap: 14px; margin: 20px 0; }
+.queueItem { border: 1px solid var(--scan-border); border-radius: 8px; padding: 18px; }
+.exportStatus { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 14px; margin: 20px 0; }
+.exportStatus > div { flex: 1; min-width: 180px; }
+.exportStatus > svg { margin-top: 3px; }
+.footer { padding-bottom: 10px; }
+@media (max-width: 1100px) {
+  .boardLayout { grid-template-columns: 1fr; }
+  .findingList { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .intake { gap: 20px; padding: 22px; }
+}
+@media (max-width: 760px) {
+  .intake, .evidenceGrid, .findingList { grid-template-columns: 1fr; }
+  .intake, .detail { padding: 18px; }
+  .stageHeading h2 { font-size: 20px; }
+  .boardDrawing { grid-template-columns: 1fr; }
+  .boardTile { gap: 4px; }
+  .boardTile svg { height: 65px; }
+  .boardTile code { font-size: 12px; }
+  .actions > button { white-space: normal; height: auto; min-height: 36px; }
+}
