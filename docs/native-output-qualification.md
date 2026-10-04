@@ -62,6 +62,15 @@ roles separately; it never selects the newest snapshot or promotes a backup.
 Older schema-v1 captures remain verifiable through their exact historical root
 inventory derivation from verified bytes.
 
+Job snapshot choices are exact same-folder names: `<job>.xml`,
+`<job>_Temp.xml`, `<job>.xml.bak`, or `<job>.bak`. History/pattern backups,
+other prefixed names, and nested files remain preserved assets but are not
+offered as that root's XML snapshots. A nested job root has its own choices.
+Historical captures retain verification when their selected XML is still valid;
+an obsolete companion/nested selection requires fresh inventory and explicit
+reselection, not an XML repair. Complete historical inventories are rederived
+from verified bytes; partial or invented inventories are rejected.
+
 Compression-ratio policy uses `expanded bytes / max(compressed bytes, 4096)`.
 The fixed 4 KiB input budget permits small repetitive assets through 1,024,000
 expanded bytes at the default ratio 250. This effective policy ratio is not the

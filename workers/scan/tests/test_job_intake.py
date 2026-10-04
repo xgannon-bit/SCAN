@@ -115,6 +115,24 @@ class JobIntakeTests(unittest.TestCase):
         write_zip(source, synthetic_job_members() + [("Other/OtherWrong.xml.bak", b"<fictional />")])
         self.assertEqual(len(inventory_zip(source).job_roots), 1)
 
+    def test_snapshot_candidates_exclude_companion_and_nested_backups(self) -> None:
+        source = self.root / "companions.zip"
+        root = "Group/Board"
+        names = ["Board.xml", "Board_Temp.xml", "Board.xml.bak", "BOARD.bak",
+                 "Board.his.bak", "Board.pat.bak", "BoardOther.bak",
+                 "nested/Board.xml.bak", "nested/Board.bak", "nested/Board_Temp.xml",
+                 "Board/Board.xml", "Board/Board_Temp.xml", "Board/Board.xml.bak"]
+        write_zip(source, [(f"{root}/{name}", b"opaque authored bytes") for name in names])
+        result = inventory_zip(source)
+        chosen = next(r for r in result.job_roots if r.root == root)
+        self.assertEqual(chosen.main_candidates, (f"{root}/Board.xml",))
+        self.assertEqual(chosen.temp_candidates, (f"{root}/Board_Temp.xml",))
+        self.assertEqual(chosen.backup_candidates, (f"{root}/BOARD.bak", f"{root}/Board.xml.bak"))
+        nested = next(r for r in result.job_roots if r.root == f"{root}/Board")
+        self.assertEqual(nested.temp_candidates, (f"{root}/Board/Board_Temp.xml",))
+        # Excluded snapshot candidates are still preserved archive entries.
+        self.assertEqual(len(result.entries), len(names))
+
     def test_absolute_path_blocks(self) -> None:
         path = self.root / "absolute.zip"
         write_zip(path, [("/absolute.txt", b"x")])

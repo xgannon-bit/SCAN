@@ -89,6 +89,17 @@ class SnapshotCaptureTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(first_bytes, self.destination.read_bytes())
 
+    def test_companion_backup_and_nested_xml_cannot_be_selected_as_job(self) -> None:
+        for name, role in [("SyntheticPanel.his.bak", "backup"), ("SyntheticPanel.pat.bak", "backup"),
+                           ("nested/SyntheticPanel.xml.bak", "backup"), ("nested/SyntheticPanel_Temp.xml", "temp")]:
+            with self.subTest(name=name):
+                member = f"{self.selection.root}/{name}"
+                write_zip(self.source, self.members + [(member, b"opaque companion bytes")], zipfile.ZIP_STORED)
+                self.expected = sha256(self.source.read_bytes()).hexdigest()
+                result = self.run_capture(selection=replace(self.selection, job_member=member, job_role=role))
+                self.assertEqual(result.code, "INVALID_SELECTION")
+                self.assert_no_output()
+
     def test_explicit_recovery_capture_when_main_is_missing(self) -> None:
         from workers.scan.snapshot_inspect import inspect_snapshot
         for role, name in (("temp", "SyntheticPanel_Temp.xml"), ("backup", "SyntheticPanel.xml.bak")):

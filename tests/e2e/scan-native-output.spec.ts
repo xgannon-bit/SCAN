@@ -90,3 +90,24 @@ test('surviving temporary snapshot and unchanged payloads stay explicitly unqual
   expect(report.holds.some((hold: { code: string }) => hold.code === 'SOFTWARE_VERSION_MISSING')).toBe(true);
   await expect(page.getByRole('button', { name: 'Export native candidate', exact: true })).toBeDisabled();
 });
+
+test('job selector excludes companion backups and nested snapshots while preserving their bytes', async ({ page }, info) => {
+  const source = { ...members,
+    'Fictional/Board/Board.his.bak': 'authored history backup',
+    'Fictional/Board/Board.pat.bak': 'authored pattern backup',
+    'Fictional/Board/nested/Board_Temp.xml': '<AuthoredNested/>',
+  };
+  await page.goto('/intake');
+  const section = await archive(page, makeArchive(source));
+  const options = await section.getByRole('combobox', { name: 'Job snapshot', exact: true }).locator('option').allTextContents();
+  expect(options.join('\n')).not.toMatch(/\.his\.bak|\.pat\.bak|nested\//);
+  expect(options.join('\n')).toContain('Board.xml.bak');
+  const report = JSON.parse((await download(page, 'Save archive report (JSON)')).toString());
+  expect(report.preflight.integrity.allArchivedFilesVerified).toBe(true);
+  for (const name of ['Fictional/Board/Board.pat.bak', 'Fictional/Board/Board.his.bak']) {
+    expect(report.preflight.preservedFiles).toContainEqual(expect.objectContaining({
+      path: name, sha256: createHash('sha256').update(source[name as keyof typeof source]).digest('hex'),
+    }));
+  }
+  await page.screenshot({ path: info.outputPath('snapshot-selection.png'), fullPage: true });
+});

@@ -156,7 +156,7 @@ def _classify_path(
 
 def _discover_job_roots(
     entries: Iterable[ArchiveEntry],
-    *, include_recovery: bool = True,
+    *, include_recovery: bool = True, legacy_snapshot_candidates: bool = False,
 ) -> tuple[JobRootCandidate, ...]:
     files = [entry for entry in entries if not entry.is_directory]
     all_paths = {entry.path for entry in files}
@@ -197,6 +197,7 @@ def _discover_job_roots(
             candidate
             for candidate in all_paths
             if candidate.startswith(prefix)
+            and (legacy_snapshot_candidates or PurePosixPath(candidate).parent == path.parent)
             and PurePosixPath(candidate).name.lower()
             == f"{job_name.lower()}_temp.xml"
         )
@@ -205,14 +206,17 @@ def _discover_job_roots(
             for candidate in all_paths
             if candidate.startswith(prefix)
             and (
-                PurePosixPath(candidate).name.lower()
-                == f"{job_name.lower()}.xml.bak"
-                or (
+                (not legacy_snapshot_candidates
+                 and PurePosixPath(candidate).parent == path.parent
+                 and PurePosixPath(candidate).name.casefold() in {
+                     f"{job_name}.xml.bak".casefold(), f"{job_name}.bak".casefold(),
+                 })
+                or (legacy_snapshot_candidates and (
                     PurePosixPath(candidate).name.lower().startswith(
                         job_name.lower()
                     )
                     and PurePosixPath(candidate).name.lower().endswith(".bak")
-                )
+                ))
             )
         )
 

@@ -103,7 +103,7 @@ def _validate_selection(inventory: InventoryResult, selection: SnapshotSelection
     root = roots[0]
     candidates = {"main": root.main_candidates, "temp": root.temp_candidates, "backup": root.backup_candidates}
     if selection.job_role not in candidates or selection.job_member not in candidates[selection.job_role]:
-        raise CaptureBlocked("INVALID_SELECTION", "Job member does not match the selected root and snapshot role.")
+        raise CaptureBlocked("INVALID_SELECTION", "Job member does not match the selected root and snapshot role. Inventory the source again and select an exact job XML snapshot in that root; companion backups and nested files are not job snapshots.")
     if selection.master_member is None:
         if selection.master_role is not None:
             raise CaptureBlocked("INVALID_SELECTION", "A master role requires an exact master member.")

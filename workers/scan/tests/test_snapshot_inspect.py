@@ -113,6 +113,52 @@ class SnapshotInspectTests(unittest.TestCase):
         self.edit_manifest(lambda manifest: manifest['jobRoots'][0].update(job_name='invented-forgery'))
         self.assertEqual(self.inspect()['status'], 'blocked')
 
+    def test_both_historical_candidate_inventories_verify_only_as_complete_derivations(self):
+        self.members.update({
+            'Fictional/Board/Board.his.bak': b'authored history backup',
+            'Fictional/Board/Board.pat.bak': b'authored pattern backup',
+            'Fictional/Board/nested/Board_Temp.xml': b'<AuthoredNested/>',
+            'Fictional/Recovery/Recovery_Temp.xml': b'<AuthoredRecovery/>',
+        })
+        for recovery in (True, False):
+            with self.subTest(recovery=recovery):
+                self.capture()
+                def historic(manifest):
+                    board = next(root for root in manifest['jobRoots'] if root['root'] == 'Fictional/Board')
+                    board['backup_candidates'] = ['Fictional/Board/Board.his.bak', 'Fictional/Board/Board.pat.bak', 'Fictional/Board/Board.xml.bak']
+                    board['temp_candidates'] = ['Fictional/Board/Board_Temp.xml', 'Fictional/Board/nested/Board_Temp.xml']
+                    if not recovery:
+                        manifest['jobRoots'] = [board]
+                self.edit_manifest(historic)
+                report = self.inspect()
+                self.assertEqual(report['status'], 'success', report)
+                self.assertTrue(report['integrity']['allArchivedFilesVerified'])
+                self.assertIn('Fictional/Board/Board.pat.bak', [m['path'] for m in report['preservedFiles']])
+                self.edit_manifest(lambda m: m['jobRoots'][0]['backup_candidates'].remove('Fictional/Board/Board.his.bak'))
+                self.assertEqual(self.inspect()['code'], 'INVENTORY_MISMATCH')
+
+    def test_old_companion_or_nested_selection_must_be_reselected_not_xml_repaired(self):
+        from dataclasses import asdict
+        for member, role in [('Fictional/Board/Board.pat.bak', 'backup'), ('Fictional/Board/nested/Board_Temp.xml', 'temp')]:
+            with self.subTest(member=member):
+                self.members[member] = b'authored opaque bytes'
+                self.capture()
+                def obsolete(files):
+                    manifest = json.loads(files['manifest.json'])
+                    board = manifest['jobRoots'][0]
+                    board[role + '_candidates'] = sorted(board[role + '_candidates'] + [member])
+                    manifest['selection']['job'].update(member=member, role=role, sha256=sha256(self.members[member]).hexdigest(), size=len(self.members[member]))
+                    chosen = replace(self.selection, job_member=member, job_role=role)
+                    identity = {'archiveSha256': manifest['source']['sha256'], 'selection': asdict(chosen)}
+                    manifest['snapshotId'] = sha256(json.dumps(identity, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+                    files['selected/job.bin'] = self.members[member]
+                    files['manifest.json'] = json.dumps(manifest).encode()
+                self.mutate(obsolete)
+                report = self.inspect()
+                self.assertEqual(report['code'], 'INVALID_SELECTION', report)
+                self.assertIn('Inventory the source again', report['reasons'][0])
+                self.assertFalse(report['machineExportAllowed'])
+
     def test_small_high_ratio_member_survives_capture_and_full_asset_verification(self):
         member = 'Fictional/Board/authored-repetitive.bin'
         self.members[member] = b'A' * 900_000

@@ -246,10 +246,12 @@ def inspect_snapshot(source_path, expected_package_sha256, limits=None):
                 actual_members.sort(key=lambda item: item['path'])
                 roots_match = _same(manifest['jobRoots'], [asdict(r) for r in inventory.job_roots])
                 if not roots_match:
-                    # Older captures did not discover orphan temp/backup roots.
-                    # Accept only that exact historical derivation of the same
-                    # verified bytes; selected members still pass current checks.
-                    roots_match = _same(manifest['jobRoots'], [asdict(r) for r in _discover_job_roots(inventory.entries, include_recovery=False)])
+                    # Recompute each complete historical inventory from verified
+                    # bytes. Never grandfather a companion/nested selection:
+                    # _validate_selection above already uses current strict roots.
+                    roots_match = any(_same(manifest['jobRoots'], [asdict(r) for r in
+                        _discover_job_roots(inventory.entries, include_recovery=recovery, legacy_snapshot_candidates=True)])
+                        for recovery in (True, False))
                 if not _same(manifest['members'], actual_members) or not roots_match or not _same(manifest['holds'], list(holds)):
                     _fail('INVENTORY_MISMATCH', 'Recorded inventory, roots or selection holds differ from verified source bytes.')
                 identity = {'archiveSha256': archive_hash, 'selection': asdict(selection)}
