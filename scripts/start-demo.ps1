@@ -28,6 +28,12 @@ try {
   if (-not (Test-Path -LiteralPath (Join-Path $scanRoot 'node_modules\next\dist\bin\next') -PathType Leaf)) {
     throw 'Project dependencies are missing. Run npm ci in the SCAN checkout, then retry this launcher.'
   }
+  $scanPythonPath = Join-Path $scanRoot '.venv\Scripts\python.exe'
+  if (-not (Test-Path -LiteralPath $scanPythonPath -PathType Leaf)) {
+    throw 'Placement worker is missing. Run py -3 -m venv .venv, then .\.venv\Scripts\python.exe -m pip install --require-hashes --only-binary=:all: -r workers/requirements.txt in this checkout.'
+  }
+  & $scanPythonPath -c "import openpyxl, defusedxml; assert openpyxl.__version__ == '3.1.5' and openpyxl.DEFUSEDXML; assert defusedxml.__version__ == '0.7.1'"
+  if ($LASTEXITCODE -ne 0) { throw 'Placement worker dependencies do not match the pinned runtime. Reinstall workers/requirements.txt in .venv.' }
   # A second port still shares this checkout's .next build. Serialize this launcher
   # and also detect direct npm starts before touching the running server's assets.
   $scanHasher = [System.Security.Cryptography.SHA256]::Create()
@@ -58,6 +64,7 @@ try {
   Write-Output "SCAN checkout: $scanRoot"
   Write-Output "Node.js: $scanNodeText"
   Write-Output "Demo URL: http://127.0.0.1:$Port/demo"
+  Write-Output "Placement intake: http://127.0.0.1:$Port/intake"
   if ($CheckOnly) {
     Write-Output 'Preflight passed: Node/npm, Next dependency and loopback port are available. No build or running server was verified.'
     exit 0

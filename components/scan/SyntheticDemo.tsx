@@ -150,6 +150,7 @@ export function SyntheticDemo() {
             </Button>
           ))}
         </nav>
+        <a href="/intake" className={buttonVariants({ variant: "outline" })}><FolderOpen aria-hidden="true" />Real placement intake</a>
         <a href="/" className={buttonVariants({ variant: "outline" })}><ArrowLeft aria-hidden="true" />Back to foundation</a>
         <div className="scan-sidebar-foot">
           <ClipboardList aria-hidden="true" className="text-primary" />

@@ -2,8 +2,9 @@
 
 Status: local Next.js UI foundation and synthetic review walkthrough are implemented,
 along with standalone Python ZIP inventory and explicit hashed snapshot capture.
-The browser does not yet
-invoke that worker. The end-to-end analysis pipeline below remains a target.
+The browser's `/intake` page invokes the separate bounded CSV/XLSX placement
+worker through a same-origin loopback endpoint. ZIP snapshot capture remains
+CLI-only. The end-to-end native job pipeline below remains a target.
 
 ## Repository layout
 
@@ -23,8 +24,8 @@ Directory README files declare boundaries; they are not working services. Add mo
 
 User-selected local input -> bounded inventory -> explicit snapshot selection -> immutable hashed capture -> version-specific readers -> neutral model -> evidence findings -> visual review -> approved proposals -> gated candidate/debug export.
 
-The planned integration will invoke the Python worker through a bounded subprocess
-with structured JSON and no shell interpolation. It is not connected yet. The worker
+Placement intake invokes Python through a bounded subprocess with structured JSON
+and no shell interpolation. The worker
 has no network listener. The frontend targets 127.0.0.1 on configurable port 3210.
 Actual dependencies are pinned in package.json/package-lock.json; the tested Node
 version is recorded in .node-version. The demo's browser-generated review record is

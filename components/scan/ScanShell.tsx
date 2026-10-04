@@ -90,7 +90,7 @@ export function ScanShell() {
               <TooltipTrigger render={<Button variant="ghost" size="icon" aria-label="Capability details" />}>
                 <Info aria-hidden="true" />
               </TooltipTrigger>
-              <TooltipContent>Read-only shell. Live file analysis and machine-job export are unavailable.</TooltipContent>
+              <TooltipContent>Placement intake is available separately. Native job analysis and machine-job export are unavailable.</TooltipContent>
             </Tooltip>
             <Button disabled><FolderOpen aria-hidden="true" />Open Job</Button>
             <Button variant="outline" disabled><Search aria-hidden="true" />Analyze</Button>
@@ -98,10 +98,10 @@ export function ScanShell() {
         </header>
 
         <div className="scan-safety-banner" role="status">
-          <strong>File analysis is not implemented in this build.</strong>
+          <strong>Native job analysis is not implemented in this build.</strong>
           <span>
-            No machine job, CAD, Gerber, library, SPC, or release data is
-            being read or written.
+            Use Placement intake to read XLSX/CSV coordinates. Native job generation,
+            Gerber alignment, and machine compatibility checks remain outstanding.
           </span>
         </div>
 
@@ -226,6 +226,7 @@ export function ScanShell() {
           ))}
         </section>
         <p className="mt-3 text-xs text-muted-foreground">— means unknown, not zero. Representation, enabled inspection, teaching, verification and release are separate states.</p>
+        <a href="/intake" className={buttonVariants({ className: "mt-4 mr-3" })}>Open placement intake</a>
         <a href="/demo" className={buttonVariants({ variant: "outline", className: "mt-4" })}>Explore synthetic demo</a>
       </main>
     </div>

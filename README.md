@@ -11,6 +11,12 @@ acceptance. See [local setup and limits](docs/ui-foundation.md). This is not an
 installed analyzer, machine-compatible job writer, or released AOI program.
 Capability descriptions below are development goals, not completed functionality.
 
+A working [placement intake](docs/placement-intake.md) is available at `/intake`.
+It reads local XLSX/CSV, supports combined or separate XY columns, validates
+explicit units/rotation/identity, and downloads a normalized placement JSON.
+This is not a native machine job. Install the pinned Python worker dependencies
+in `.venv` as described in that guide before starting the app.
+
 A [synthetic walkthrough](docs/synthetic-demo.md) is available at `/demo`.
 It demonstrates exact placement selection and simulated review decisions with
 fictional data; it does not analyze files or produce machine jobs.

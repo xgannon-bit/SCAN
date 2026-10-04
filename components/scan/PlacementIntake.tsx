@@ -1,0 +1,110 @@
+"use client";
+
+import Link from "next/link";
+import { useRef, useState } from "react";
+import { FileSpreadsheet, ArrowLeft, Download, Upload, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import type { PlacementConfig, PlacementPreview, PlacementResult } from "@/lib/scan/placement-types";
+import styles from "./PlacementIntake.module.css";
+
+const initial: PlacementConfig = { startRow: 1, columns: { refdes: 1, mpn: 2, xy: 4, side: 5, rotation: 6, footprint: 7 }, module: "", side: "", units: "unknown", rotationDirection: "unknown", decimalSeparator: ".", pairSeparator: "," };
+const columnName = (index: number): string => index > 26 ? columnName(Math.floor((index - 1) / 26)) + String.fromCharCode(65 + (index - 1) % 26) : String.fromCharCode(64 + index);
+
+export function PlacementIntake() {
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<PlacementPreview | null>(null);
+  const [result, setResult] = useState<PlacementResult | null>(null);
+  const [config, setConfig] = useState<PlacementConfig>(initial);
+  const [sheet, setSheet] = useState(0);
+  const [delimiter, setDelimiter] = useState(",");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const controller = useRef<AbortController | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const edit = (changes: Partial<PlacementConfig>) => { setConfig((previous) => ({ ...previous, ...changes })); setResult(null); setError(""); };
+
+  async function run(action: "inspect" | "normalize") {
+    if (!file) return;
+    controller.current?.abort();
+    const abort = new AbortController();
+    controller.current = abort;
+    setBusy(true); setError(""); setResult(null);
+    if (action === "inspect") setPreview(null);
+    const form = new FormData();
+    form.set("file", file); form.set("action", action); form.set("sheetIndex", String(sheet));
+    form.set("delimiter", delimiter); form.set("config", JSON.stringify(config));
+    try {
+      const response = await fetch("/api/placements", { method: "POST", body: form, signal: abort.signal });
+      const value = await response.json();
+      if (controller.current !== abort || abort.signal.aborted) return;
+      if (!response.ok || value.message) throw new Error(value.message || "Import failed.");
+      if (action === "inspect") setPreview(value);
+      else {
+        if (value.sourceSha256 !== preview?.sourceSha256) throw new Error("Source changed since preview. Read the file again before validation.");
+        setResult(value);
+      }
+    } catch (failure) {
+      if (controller.current === abort) setError(abort.signal.aborted ? "Import cancelled." : failure instanceof Error ? failure.message : "Import failed.");
+    } finally { if (controller.current === abort) setBusy(false); }
+  }
+
+  function reset() {
+    controller.current?.abort(); controller.current = null;
+    setFile(null); setPreview(null); setResult(null); setConfig(initial); setSheet(0); setDelimiter(","); setError(""); setBusy(false);
+    if (fileInput.current) fileInput.current.value = "";
+  }
+
+  function download() {
+    if (!result || result.status !== "success") return;
+    const url = URL.createObjectURL(new Blob([JSON.stringify(result, null, 2)], { type: "application/json" }));
+    const anchor = document.createElement("a"); anchor.href = url; anchor.download = "scan-normalized-placements.json"; anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  return <main className={styles.page}>
+    <header className={styles.header}>
+      <div><Link href="/demo" className={styles.back}><ArrowLeft size={15} /> Synthetic walkthrough</Link><h1><FileSpreadsheet aria-hidden size={25} /> Placement intake</h1><p>Read your placement spreadsheet and review its coordinates locally.</p></div>
+      <Button variant="outline" onClick={reset}><X size={16} /> Clear file</Button>
+    </header>
+    <div className={styles.notice}><strong>Working placement importer</strong><span>Native Eagle/Athena job generation and Gerber alignment are still under development. This screen produces a source placement record.</span></div>
+    <section className={styles.panel} aria-labelledby="source-title">
+      <h2 id="source-title">1. Select source</h2>
+      <p>Files are processed on this laptop. Originals are read only. Clear the file or refresh to remove this review from the page.</p>
+      <fieldset disabled={busy} className={styles.grid}>
+        <label>Placement file (.xlsx or .csv)<input ref={fileInput} type="file" accept=".xlsx,.csv" onChange={(e) => { setFile(e.target.files?.[0] || null); setPreview(null); setResult(null); setConfig(initial); setError(""); setSheet(0); }} /></label>
+        <label>CSV delimiter<select value={delimiter} onChange={(e) => { setDelimiter(e.target.value); setPreview(null); setResult(null); }}><option value=",">Comma</option><option value=";">Semicolon</option><option value={"\t"}>Tab</option></select></label>
+        <label>Worksheet index (starts at 0)<input type="number" min="0" max="19" value={sheet} onChange={(e) => { setSheet(Number(e.target.value)); setPreview(null); setResult(null); }} /></label>
+      </fieldset>
+      <div className={styles.actions}><Button disabled={!file || busy} onClick={() => run("inspect")}><Upload size={16} /> Read file</Button>{busy && <Button variant="outline" onClick={() => controller.current?.abort()}>Cancel import</Button>}<span aria-live="polite">{busy ? "Reading and validating source…" : file ? `${file.name} · ${(file.size / 1024).toFixed(1)} KB` : "8 MB maximum"}</span></div>
+      {preview && <><p>{preview.rowCount} source rows · {preview.columnCount} columns · sheet {preview.sheetIndex}. Worksheets: {preview.sheets.map(s => `${s.index}: ${s.name}`).join(", ")}.</p><div className={styles.scroll}><table><caption>First six rows, including any headers. Confirm the column meanings below.</caption><thead><tr><th>Row</th>{Array.from({ length: preview.columnCount }, (_, i) => <th key={i}>{columnName(i + 1)}</th>)}</tr></thead><tbody>{preview.preview.map((row, i) => <tr key={i}><th>{i + 1}</th>{row.map((value, j) => <td key={j}>{value === null ? "—" : String(value)}</td>)}</tr>)}</tbody></table></div></>}
+    </section>
+    {preview && <section className={styles.panel} aria-labelledby="mapping-title">
+      <h2 id="mapping-title">2. Confirm mapping and conventions</h2>
+      <p>Column choices are editable starting points. Check them against the preview. Headerless sheets start at row 1. Board side does not apply a mirror.</p>
+      <fieldset disabled={busy} className={styles.grid}>
+        <label>Coordinate layout<select value={config.columns.xy ? "combined" : "separate"} onChange={(e) => { const columns = { ...config.columns }; delete columns.xy; delete columns.x; delete columns.y; if (e.target.value === "combined") columns.xy = 4; else { columns.x = 3; columns.y = 4; } edit({ columns }); }}><option value="combined">Combined XY cell</option><option value="separate">Separate X and Y columns</option></select></label>
+        <label>First data row<input type="number" min="1" max={preview.rowCount} value={config.startRow} onChange={(e) => edit({ startRow: Number(e.target.value) })} /></label>
+        {([['refdes', 'Reference designator'], ['mpn', 'MPN'], ...(config.columns.xy ? [['xy', 'Combined XY']] : [['x', 'X'], ['y', 'Y']]), ['rotation', 'Rotation'], ['side', 'Board side'], ['module', 'Module'], ['footprint', 'Footprint']] as string[][]).map(([field, label]) => <label key={field}>{label} column<select value={config.columns[field] || 0} onChange={(e) => { const columns = { ...config.columns }; if (Number(e.target.value)) columns[field] = Number(e.target.value); else delete columns[field]; edit({ columns }); }}><option value="0">Not mapped</option>{Array.from({ length: preview.columnCount }, (_, i) => <option key={i} value={i + 1}>{columnName(i + 1)}</option>)}</select></label>)}
+        {!config.columns.module && <label>Module for this sheet<input value={config.module} maxLength={256} placeholder="Enter the module identity" onChange={(e) => edit({ module: e.target.value })} /></label>}
+        {!config.columns.side && <label>Board side for this sheet<select value={config.side} onChange={(e) => edit({ side: e.target.value })}><option value="">Select side</option><option>Top</option><option>Bottom</option></select></label>}
+        <label>Placement units<select value={config.units} onChange={(e) => edit({ units: e.target.value })}><option value="unknown">Unconfirmed</option><option value="mm">Millimeters</option><option value="inch">Inches</option><option value="mil">Mils (0.001 inch)</option></select></label>
+        <label>Source rotation direction<select value={config.rotationDirection} onChange={(e) => edit({ rotationDirection: e.target.value })}><option value="unknown">Unconfirmed</option><option value="ccw">Counterclockwise degrees</option><option value="cw">Clockwise degrees</option></select></label>
+        <label>Decimal separator<select value={config.decimalSeparator} onChange={(e) => edit({ decimalSeparator: e.target.value })}><option value=".">Point (1.25)</option><option value=",">Comma (1,25)</option></select></label>
+        {config.columns.xy && <label>XY separator<select value={config.pairSeparator} onChange={(e) => edit({ pairSeparator: e.target.value })}><option value=",">Comma</option><option value=";">Semicolon</option><option value="space">Whitespace</option></select></label>}
+      </fieldset>
+      <Button disabled={busy} onClick={() => run("normalize")}>Validate placements</Button>
+    </section>}
+    {error && <p role="alert" className={styles.error}>{error}</p>}
+    {result && <section className={styles.panel} aria-labelledby="result-title">
+      <h2 id="result-title">3. Placement review</h2>
+      <p role="status"><strong>{result.status === "success" ? "Placement parsing complete" : "Placement review needs attention"}</strong> · {result.counts.parsed} parsed · {result.counts.errors} errors · {result.counts.warnings} warnings · {result.counts.skippedBlank} blank rows skipped</p>
+      {result.holds.length > 0 && <ul>{result.holds.map(hold => <li key={hold}>{hold}</li>)}</ul>}
+      <p>Coordinates below remain in the source CAD frame, converted to millimeters where confirmed. No origin shift, Gerber alignment, or bottom-side mirror has been applied. Rotation is counterclockwise where confirmed.</p>
+      <div className={styles.scroll}><table><caption>First {Math.min(result.placements.length, 50)} parsed placements</caption><thead><tr>{['Module', 'Side', 'Reference', 'MPN', 'X (mm)', 'Y (mm)', 'Rotation (°)'].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>{result.placements.slice(0, 50).map((p, i) => <tr key={`${p.placementId}-${i}`}><td>{p.module}</td><td>{p.side}</td><td>{p.refdes}</td><td>{p.mpn ?? "Unknown"}</td><td>{p.xMm ?? "Unconfirmed"}</td><td>{p.yMm ?? "Unconfirmed"}</td><td>{p.rotationCcwDegrees ?? "Unconfirmed"}</td></tr>)}</tbody></table></div>
+      {result.issues.length > 0 && <details open><summary>Row issues ({result.issues.length})</summary><ul>{result.issues.slice(0, 100).map((issue, i) => <li key={i}>Row {issue.row} · {issue.severity}: {issue.message}</li>)}</ul>{result.issues.length > 100 && <p>Showing the first 100 issues. Resolve these and validate again.</p>}</details>}
+      <details><summary>Source identity</summary><p className={styles.hash}>SHA-256: {result.sourceSha256}</p></details>
+      <div className={styles.actions}><Button disabled={result.status !== "success"} onClick={download}><Download size={16} /> Save placement record (JSON)</Button><Button variant="outline" disabled>Export Eagle/Athena job</Button></div>
+      <p>The JSON contains the complete parsed placement set and its source hash. It is a SCAN record, not a machine job. Native job construction, model binding, and machine compatibility checks remain outstanding.</p>
+    </section>}
+  </main>;
+}

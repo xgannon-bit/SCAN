@@ -10,7 +10,8 @@ test("foundation: truthful capabilities, primitives, focus and loopback assets",
   });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "No job loaded" })).toBeVisible();
-  await expect(page.getByRole("status")).toContainText("File analysis is not implemented");
+  await expect(page.getByRole("status")).toContainText("Native job analysis is not implemented");
+  await expect(page.getByRole("link", { name: "Open placement intake" })).toHaveAttribute("href", "/intake");
   for (const name of ["Open Job", "Analyze", "Export machine job"]) {
     await expect(page.getByRole("button", { name, exact: true })).toBeDisabled();
   }
