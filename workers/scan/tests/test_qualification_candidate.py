@@ -18,12 +18,12 @@ XML = b'''<?xml version="1.0" encoding="UTF-8"?>\r
   <!-- preserve opaque formatting and unknown teaching exactly -->
   <Opaque Setting="authored">untouched &amp; exact</Opaque>
   <PartDataList>
-    <PartData><ID>part-fiction-17</ID><ParentId>module-fiction</ParentId><MasterKey>model-fiction</MasterKey>
+    <PartData><ID>part-fiction-17</ID><ParentId>module-fiction</ParentId><MasterKey>model-fiction</MasterKey><RefID>FICT17</RefID>
       <ENABLE>True</ENABLE><CenterPosX>12.500</CenterPosX><Roi><cx>12.500</cx><cy>4.000</cy><w>1.25</w><a>090</a></Roi>
       <WND_PAD>old-binding</WND_PAD><ListGerPadId1>11;12</ListGerPadId1><ListGerbPadId_Common1>11;12</ListGerbPadId_Common1>
       <Threshold>DO-NOT-CHANGE</Threshold>
     </PartData>
-    <PartData><ID>second-fiction</ID><ParentId>module-fiction</ParentId><MasterKey>other-fiction</MasterKey>
+    <PartData><ID>second-fiction</ID><ParentId>module-fiction</ParentId><MasterKey>other-fiction</MasterKey><RefID>FICT18</RefID>
       <ENABLE>True</ENABLE><CenterPosX>9.25</CenterPosX><Roi><cx>9.25</cx></Roi></PartData>
   </PartDataList>
 </JobContainer>'''
@@ -35,7 +35,7 @@ def digest(data):
 
 def proposal(field='Roi/cx', before='12.500', after='13.750', identifier='fictional-proposal'):
     return {'id': identifier, 'path': f'JobContainer/PartDataList/PartData[1]/{field}',
-            'identity': {'ID': 'part-fiction-17', 'ParentId': 'module-fiction', 'MasterKey': 'model-fiction'},
+            'identity': {'ID': 'part-fiction-17', 'ParentId': 'module-fiction', 'MasterKey': 'model-fiction', 'RefID': 'FICT17'},
             'before': before, 'after': after, 'evidenceIds': ['fictional-evidence']}
 
 
@@ -131,6 +131,45 @@ class QualificationCandidateTests(unittest.TestCase):
         self.assertEqual(result['status'], 'success', result)
         _, contents, _ = self.candidate()
         self.assertEqual(contents[JOB], XML.replace(b'<CenterPosX>12.500</CenterPosX>', b'<CenterPosX>-3.125</CenterPosX>').replace(b'<ENABLE>True</ENABLE>', b'<ENABLE>False</ENABLE>', 1))
+
+    def test_one_scalar_preserves_all_other_bytes_and_keeps_inspection_unresolved(self):
+        self.assertEqual(self.create()['status'], 'success')
+        _, contents, receipt = self.candidate()
+        self.assertEqual(contents, {**self.members, JOB: XML.replace(b'<cx>12.500</cx>', b'<cx>13.750</cx>')})
+        self.assertEqual(self.source.read_bytes(), self.original)
+        self.assertEqual(len(receipt['changes']), 1)
+        changed_files = [item['path'] for item in receipt['files'] if item['before'] != item['after']]
+        self.assertEqual(changed_files, [JOB])
+        self.assertFalse(receipt['inspectionRepairEstablished'])
+        self.assertEqual(receipt['padBindingQualification'], 'unresolved')
+        self.assertEqual(receipt['dependentWindowQualification'], 'unresolved')
+        self.assertEqual(receipt['eagleOpenSaveReopen'], 'not-performed')
+        self.assertEqual(receipt['snapshotPolicy']['selectedMainMember'], JOB)
+        with zipfile.ZipFile(self.destination) as wrapper:
+            readme = wrapper.read('README.txt').decode()
+        self.assertIn(receipt['snapshotPolicy']['warning'], readme)
+        self.assertIn('Do not silently substitute', readme)
+        self.assertIn('A successful Eagle open does not establish an inspection repair.', readme)
+
+    def test_reference_identity_required_and_bound_to_acceptance(self):
+        request = self.request(); del request['proposals'][0]['identity']['RefID']
+        self.assertEqual(self.create(self.accept(request))['code'], 'INVALID_REQUEST'); self.assert_no_output()
+        request = self.request(); request['proposals'][0]['identity']['RefID'] = 'FICT18'
+        self.assertEqual(self.create(request)['code'], 'STALE_APPROVAL'); self.assert_no_output()
+        self.assertEqual(self.create(self.accept(request))['code'], 'IDENTITY_MISMATCH'); self.assert_no_output()
+
+    def test_missing_repeated_nested_and_attributed_reference_identity_block(self):
+        for replacement in (b'', b'<RefID>FICT17</RefID><RefID>FICT17</RefID>',
+                            b'<RefID><nested>FICT17</nested></RefID>', b'<RefID alias="x">FICT17</RefID>',
+                            b'<RefID>FICT&#49;7</RefID>'):
+            with self.subTest(replacement=replacement):
+                self.members[JOB] = XML.replace(b'<RefID>FICT17</RefID>', replacement); self.write_source()
+                self.assertEqual(self.create()['code'], 'IDENTITY_MISMATCH'); self.assert_no_output()
+
+    def test_stale_ordinal_cannot_select_another_part_with_same_reference(self):
+        self.members[JOB] = XML.replace(b'<RefID>FICT18</RefID>', b'<RefID>FICT17</RefID>'); self.write_source()
+        request = self.request(); request['proposals'][0]['path'] = 'JobContainer/PartDataList/PartData[2]/Roi/cx'
+        self.assertEqual(self.create(self.accept(request))['code'], 'IDENTITY_MISMATCH'); self.assert_no_output()
 
     def test_unsupported_fields_versions_enable_directions_and_empty_or_noop_sets(self):
         cases = [self.request([proposal('Roi/cy')]), self.request([proposal('Threshold')]),

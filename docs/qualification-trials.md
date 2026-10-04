@@ -19,11 +19,16 @@ directory is performed. The caller must choose isolated private storage.
 - Independently supported evidence declarations, each with a summary and hashed
   references. The writer binds these declarations but cannot establish whether
   they are correct or complete.
-- Exact original part ID, parent/module literal and Master key, ordinal field
+- Exact original part ID, parent/module literal, Master key and `RefID`, ordinal field
   path, before/after text and evidence links for each proposal.
 - Explicit reviewer, trial purpose and exact acceptance digest. `proposal_digest`
   computes a binding hash; computing it does not constitute approval. Never
   create accepted decisions from a user note or historical candidate diff.
+
+The ordinal is only a location hint: native identity must resolve uniquely there,
+and exactly one plain `RefID` must match. A matching reference cannot disambiguate
+duplicate native identities. Requests missing `RefID` are refused; adding it
+changes the proposal digest and requires review of the revised proposal.
 
 Supported mechanical targets are narrowly limited to placement `Roi/cx`,
 `CenterPosX`, `WND_PAD`, `ListGerPadId1`, `ListGerbPadId_Common1`, and the exact
@@ -47,6 +52,9 @@ are preserved; they do not put unprefixed elements in a namespace.
 Every other original member payload remains byte-identical, including Master,
 temporary/backup snapshots, images, unknown files and teaching. Repacking may
 change ZIP container bytes. Each original/candidate asset hash is recorded.
+Preserved Temp/backup snapshots retain their original state, not the candidate
+edits. They must not be silently substituted for the selected main XML during
+testing. The receipt and README name the selected main member and warn about this.
 Publication is atomic and cannot overwrite an existing file. Cancellation before
 publication produces no final output. A cleanup problem after successful
 publication is reported separately from publication success.
@@ -64,3 +72,7 @@ This does not satisfy the full engineering handoff by itself. Required asset
 resolution, intended geometry, exact remaining teaching, controlled OEM saves,
 Eagle open/save/reopen, fresh-board optical tests and release need separate
 evidence. One trial must not qualify another operation, version or machine.
+The receipt explicitly leaves pad-binding and dependent-window qualification
+unresolved and inspection repair unestablished. Even a successful Eagle open
+cannot clear those checks; placement acceptance alone does not prove inspection
+geometry or teaching is correct.

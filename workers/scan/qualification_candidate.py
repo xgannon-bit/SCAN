@@ -10,7 +10,7 @@ Request v1 keys: artifactType='scan.qualification-patch-request', schemaVersion=
 purpose='qualification-only', source={archiveSha256,jobSha256,root,jobMember,
 jobRole='main'}, targetEagleBuild=str|null, targetMachine=str|null, reviewer=str,
 trialPurpose=str, evidence=[{id,summary,independentSupport:true,references:
-[{sha256,label}]}], proposals=[{id,path,identity:{ID,ParentId,MasterKey},before,
+[{sha256,label}]}], proposals=[{id,path,identity:{ID,ParentId,MasterKey,RefID},before,
 after,evidenceIds:[id]}], acceptances=[{proposalId,proposalSha256,decision:
 'accepted'|'pending'|'rejected',reviewer}]. A proposal may also declare
 dependencyProposalIds; every accepted proposal's dependencies must be accepted.
@@ -126,9 +126,9 @@ def _request(value):
         if not match or patch['path'] in paths:
             _fail('UNSUPPORTED_TARGET', 'Patch targets must be distinct supported scalar paths.')
         paths.add(patch['path'])
-        _object(patch['identity'], {'ID', 'ParentId', 'MasterKey'})
+        _object(patch['identity'], {'ID', 'ParentId', 'MasterKey', 'RefID'})
         if not all(_text(v) for v in patch['identity'].values()):
-            _fail('IDENTITY_REQUIRED', 'Exact part ID, parent/module and Master key are required.')
+            _fail('IDENTITY_REQUIRED', 'Exact part ID, parent/module, Master key and reference designator are required.')
         if any(not isinstance(patch[key], str) or len(patch[key]) > 2048 or any(c in patch[key] for c in '<&\0') for key in ('before', 'after')) or not patch['after'].strip() or patch['before'] == patch['after']:
             _fail('INVALID_LITERAL', 'Only changed plain scalar text is supported; XML markup/entities and no-op edits are rejected.')
         field = match[2]
@@ -230,7 +230,7 @@ def _xml(raw):
     def end(_name):
         node = stack.pop()
         path = node['path']
-        if path == 'JobContainer/JobXmlVersion' or re.fullmatch(r'JobContainer/PartDataList/PartData\[[0-9]+\]/(?:ID|ParentId|MasterKey|Roi/cx|CenterPosX|ENABLE|WND_PAD|ListGerPadId1|ListGerbPadId_Common1)', path):
+        if path == 'JobContainer/JobXmlVersion' or re.fullmatch(r'JobContainer/PartDataList/PartData\[[0-9]+\]/(?:ID|ParentId|MasterKey|RefID|Roi/cx|CenterPosX|ENABLE|WND_PAD|ListGerPadId1|ListGerbPadId_Common1)', path):
             start_at, end_at = node['contentStart'], parser.CurrentByteIndex
             scalar = not node['children'] and not node['selfClosing'] and not node['attributes'] and end_at >= start_at
             data = raw[start_at:end_at] if scalar else b''
@@ -276,6 +276,11 @@ def _patch_xml(raw, patches):
         possible = set.intersection(*(identity_literals[key].get(patch['identity'][key], set()) for key in identity_literals))
         if identities.get(expected) != [part] or possible != {part}:
             _fail('IDENTITY_MISMATCH', 'The exact part identity does not resolve uniquely to the reviewed ordinal.')
+        # RefID is an additional assertion, never a way to disambiguate reused
+        # native identities. Keep the original identity uniqueness check above.
+        reference = leaves.get(part + '/RefID', [])
+        if len(reference) != 1 or not reference[0]['plain'] or reference[0]['literal'] != patch['identity']['RefID']:
+            _fail('IDENTITY_MISMATCH', 'The selected part must have exactly one plain reference designator matching the reviewed identity.')
         target = leaves.get(patch['path'], [])
         if len(target) != 1 or not target[0]['plain']:
             _fail('AMBIGUOUS_TARGET', 'A target is missing, repeated, nested, attributed or not plain scalar text.')
@@ -417,10 +422,18 @@ def create_qualification_candidate(source_path, destination_path, request, *, ca
                         _fail('INVARIANT_FAILED', 'Candidate payload did not match the verified changed/unchanged bytes.')
             receipt = {
                 'artifactType': 'scan.qualification-trial-receipt', 'schemaVersion': '1', 'status': 'success',
-                'writerVersion': 'qualification-byte-patch-1', 'nativeSchemaClaim': 'JobContainer/10.2',
+                'writerVersion': 'qualification-byte-patch-2', 'nativeSchemaClaim': 'JobContainer/10.2',
                 'qualificationOnly': True, 'nativeEditsApplied': True, 'machineExportAllowed': False,
                 'nativeSemanticsQualified': False, 'machineCompatibility': None, 'productionRelease': None,
                 'dependencyCompleteness': None,
+                'inspectionRepairEstablished': False,
+                'padBindingQualification': 'unresolved', 'dependentWindowQualification': 'unresolved',
+                'eagleOpenSaveReopen': 'not-performed',
+                'snapshotPolicy': {
+                    'selectedMainMember': expected['jobMember'],
+                    'unselectedPayloads': 'preserved-byte-identical',
+                    'warning': 'Preserved Temp/backup snapshots retain their original state, not the candidate edits. Do not silently substitute them for the selected main XML during testing.',
+                },
                 'source': expected, 'targetEagleBuild': request['targetEagleBuild'], 'targetMachine': request['targetMachine'],
                 'targetIdentityVerified': False, 'reviewer': request['reviewer'], 'trialPurpose': request['trialPurpose'],
                 'evidenceInterpretation': 'Caller-asserted independent support; bound mechanically, not interpreted or qualified by this writer.',
@@ -437,7 +450,10 @@ def create_qualification_candidate(source_path, destination_path, request, *, ca
             with zipfile.ZipFile(package, 'x', compression=zipfile.ZIP_STORED) as wrapper:
                 wrapper.write(candidate, 'CANDIDATE.zip')
                 wrapper.writestr('qualification-receipt.json', receipt_bytes)
-                wrapper.writestr('README.txt', 'ISOLATED QUALIFICATION TRIAL ONLY\nCANDIDATE.zip contains native scalar edits explicitly accepted by the named reviewer.\nThis transport ZIP is not an Eagle import claim. Do not overwrite a live job or library.\nNative semantics, required dependencies and Eagle open/save/reopen compatibility remain unqualified.\nVerify the exact candidate in a separate authorized Eagle trial and preserve the original.\n')
+                wrapper.writestr('README.txt', 'ISOLATED QUALIFICATION TRIAL ONLY\nCANDIDATE.zip contains native scalar edits explicitly accepted by the named reviewer.\nThis transport ZIP is not an Eagle import claim. Do not overwrite a live job or library.\nNative semantics, required dependencies and Eagle open/save/reopen compatibility remain unqualified.\n'
+                                 + 'Selected main XML: ' + expected['jobMember'] + '\n'
+                                 + receipt['snapshotPolicy']['warning'] + '\n'
+                                 + 'Pad binding and dependent-window checks remain unresolved. A successful Eagle open does not establish an inspection repair.\nVerify the exact candidate in a separate authorized Eagle trial and preserve the original.\n')
             package_hash, package_stat = _fresh_hash(package, MAX_CANDIDATE + 4_000_000)
             fresh_hash, fresh_stat = _fresh_hash(source, MAX_ARCHIVE)
             if fresh_hash != original_hash or _fingerprint(fresh_stat) != _fingerprint(original_stat):
