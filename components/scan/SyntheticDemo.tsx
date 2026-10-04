@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, ClipboardList, FolderOpen, Info, LockKeyhole, ScanLine, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, ClipboardList, Download, FolderOpen, Info, LockKeyhole, Presentation, Printer, RotateCcw, ScanLine, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { DEMO_FINDINGS, DEMO_LABEL, demoIdentity, type DemoFinding } from "@/lib/scan/demo-fixtures";
+import { createDemoReport, type DemoDecision } from "@/lib/scan/demo-report";
 import styles from "./SyntheticDemo.module.css";
 
 const steps = [
@@ -18,7 +19,29 @@ const steps = [
   { id: "debug", label: "Debug Queue", title: "Debug Queue / Export status" },
 ] as const;
 type Stage = typeof steps[number]["id"];
-type Decision = "Accepted" | "Rejected";
+
+const presenterNotes: Record<Stage, { say: string; show: string }> = {
+  intake: {
+    say: "SCAN is an engineering review workspace. This fictional example shows how a finding stays tied to one exact component through review.",
+    show: "Open the session. There are two R7 placements on different modules and one bottom-side U3.",
+  },
+  board: {
+    say: "A reference designator alone is not enough. Module, board side and placement identify the component being reviewed.",
+    show: "Select MODULE-A / Top / R7, then view its evidence. Later, review MODULE-B / Top / R7 separately to demonstrate independent decisions.",
+  },
+  evidence: {
+    say: "Each finding carries its source and its limits. Missing teaching or bottom-side evidence remains visible instead of becoming a passing result.",
+    show: "Point out the full placement identity and unknown frame/units, then review the fictional proposal.",
+  },
+  repair: {
+    say: "Review compares the original note with a proposed annotation. A review choice does not alter source data or authorize production.",
+    show: "Simulate Accept for the first R7. Simulate Reject for the other R7 to show that their decisions stay separate.",
+  },
+  debug: {
+    say: "The review queue keeps each decision with its exact placement. We can keep a synthetic review record while machine export remains unavailable.",
+    show: "Review another finding, revisit a decision, or download the JSON record. Finish by showing that taught, verified and released are still unknown.",
+  },
+};
 
 function Identity({ finding }: { finding: DemoFinding }) {
   return (
@@ -35,11 +58,15 @@ export function SyntheticDemo() {
   const [opened, setOpened] = useState(false);
   const [stage, setStage] = useState<Stage>("intake");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [decisions, setDecisions] = useState<Record<string, Decision>>({});
+  const [decisions, setDecisions] = useState<Record<string, DemoDecision>>({});
+  const [showNotes, setShowNotes] = useState(true);
+  const [downloadStatus, setDownloadStatus] = useState("");
   const heading = useRef<HTMLHeadingElement>(null);
   const finding = DEMO_FINDINGS.find(item => item.id === selectedId);
   const current = steps.find(step => step.id === stage)!;
   const queue = DEMO_FINDINGS.filter(item => decisions[item.id]);
+  const nextUnreviewed = DEMO_FINDINGS.find(item => !decisions[item.id]);
+  const accepted = queue.filter(item => decisions[item.id] === "Accepted").length;
 
   // Browser Back/Forward changes the view without losing in-memory selection.
   // A refresh intentionally starts a new empty presentation session.
@@ -54,7 +81,9 @@ export function SyntheticDemo() {
     return () => window.removeEventListener("hashchange", syncView);
   }, [opened]);
 
-  useEffect(() => { heading.current?.focus(); }, [stage]);
+  useEffect(() => { heading.current?.focus(); }, [stage, opened]);
+
+  useEffect(() => { setDownloadStatus(""); }, [decisions]);
 
   function navigate(next: Stage) {
     setStage(next);
@@ -66,7 +95,37 @@ export function SyntheticDemo() {
     navigate("board");
   }
 
-  function decide(decision: Decision) {
+  function restart() {
+    setOpened(false);
+    setSelectedId(null);
+    setDecisions({});
+    setDownloadStatus("");
+    navigate("intake");
+  }
+
+  function downloadReport() {
+    let url: string | undefined;
+    try {
+      const report = createDemoReport(decisions);
+      const blob = new Blob([JSON.stringify(report, null, 2) + "\n"], { type: "application/json" });
+      url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `SCAN-synthetic-review-${report.generatedAt.replace(/[:.]/g, "-")}.json`;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      setDownloadStatus("Review record sent to browser downloads. It contains synthetic choices only; no machine job or source file.");
+    } catch {
+      setDownloadStatus("The review record could not be prepared. Your choices are still here; try the download again.");
+    } finally {
+      // Give the browser time to consume the Blob before releasing it.
+      const completedUrl = url;
+      if (completedUrl) window.setTimeout(() => URL.revokeObjectURL(completedUrl), 1000);
+    }
+  }
+
+  function decide(decision: DemoDecision) {
     if (!finding) return;
     setDecisions(previous => ({ ...previous, [finding.id]: decision }));
     navigate("debug");
@@ -100,9 +159,13 @@ export function SyntheticDemo() {
 
       <main className="scan-main">
         <header className="scan-header">
-          <div><p className="scan-eyebrow">A01-DEMO-01</p><h1>{opened ? "Cedar-7 · fictional panel" : "Explore a fictional session"}</h1></div>
+          <div><p className="scan-eyebrow">Synthetic walkthrough</p><h1>{opened ? "Cedar-7 · fictional panel" : "Explore a fictional session"}</h1></div>
           <div className="scan-header-actions">
             <Badge variant="outline">{opened ? "DEMO-SESSION-001" : "No session opened"}</Badge>
+            <Button variant="outline" size="sm" aria-expanded={showNotes} aria-controls="presenter-notes" onClick={() => setShowNotes(value => !value)}>
+              <Presentation aria-hidden="true" />{showNotes ? "Hide presenter notes" : "Show presenter notes"}
+            </Button>
+            {opened && <Button variant="outline" size="sm" onClick={restart}><RotateCcw aria-hidden="true" />Restart demo</Button>}
             <Tooltip>
               <TooltipTrigger render={<Button variant="ghost" size="icon" aria-label="Demo limitations" />}><Info aria-hidden="true" /></TooltipTrigger>
               <TooltipContent>Fictional presentation only. No source is parsed or changed. No decision validates or releases a job.</TooltipContent>
@@ -114,6 +177,12 @@ export function SyntheticDemo() {
           <strong>{DEMO_LABEL}</strong>
           <span>Decisions reset on refresh. Simulated acceptance never means validation or release.</span>
         </div>
+
+        <section id="presenter-notes" className={styles.presenter} aria-label="Presenter notes" hidden={!showNotes}>
+          <div className={styles.detailTitle}><h3>Presenter notes</h3><Badge variant="outline">Suggested walkthrough · 3 minutes</Badge></div>
+          <p><strong>Say:</strong> {presenterNotes[stage].say}</p>
+          <p><strong>Show:</strong> {presenterNotes[stage].show}</p>
+        </section>
 
         <div className={styles.stageHeading}>
           <div><p className="scan-eyebrow">Step {steps.indexOf(current) + 1} of 5</p><h2 ref={heading} tabIndex={-1}>{current.title}</h2></div>
@@ -127,6 +196,7 @@ export function SyntheticDemo() {
               <h3>A small, inspectable walkthrough</h3>
               <p>Open Cedar-7, select an exact placement, inspect its authored evidence card, then simulate a review decision and see the matching debug item.</p>
               <p>The sample has three placements. Two are named R7, on different modules. Their identities and review decisions stay separate.</p>
+              <p className={styles.muted}>Nothing to upload or configure. Restart demo clears your choices for the next walkthrough. A downloaded record remains on this computer.</p>
               <Button onClick={opened ? () => navigate("board") : openSession}>
                 {opened ? "Resume fictional session" : "Open fictional session"}<ArrowRight aria-hidden="true" />
               </Button>
@@ -222,6 +292,12 @@ export function SyntheticDemo() {
         {stage === "debug" && (
           <section className={cn("scan-panel", styles.detail)} aria-label="Demo debug queue">
             <div className={styles.detailTitle}><h3>Simulated review decisions</h3><Badge variant="secondary">{queue.length} demo items</Badge></div>
+            <div className={styles.reviewSummary} aria-label="Review progress">
+              <div><strong>{queue.length} / {DEMO_FINDINGS.length}</strong><span>Fictional findings reviewed</span></div>
+              <div><strong>{accepted}</strong><span>Simulated accepted</span></div>
+              <div><strong>{queue.length - accepted}</strong><span>Simulated rejected</span></div>
+              <div><strong>{DEMO_FINDINGS.length - queue.length}</strong><span>Unreviewed</span></div>
+            </div>
             {queue.length === 0 ? <p>No simulated decisions yet. Choose a finding and review its fictional proposal.</p> : <div className={styles.queue}>
               {queue.map(item => <article key={item.id} className={styles.queueItem} aria-label={`Debug item ${item.debugId}`}>
                 <div className={styles.detailTitle}><h4>{item.debugId} · {item.refDes}</h4><Badge variant={decisions[item.id] === "Accepted" ? "outline" : "secondary"}>Simulated {decisions[item.id].toLowerCase()}</Badge></div>
@@ -231,13 +307,26 @@ export function SyntheticDemo() {
                 <Button variant="outline" size="sm" onClick={() => { setSelectedId(item.id); navigate("repair"); }}>Revisit {item.debugId}</Button>
               </article>)}
             </div>}
+            <div className={styles.report} aria-label="Synthetic review record">
+              <h4>Keep this demonstration record</h4>
+              <p>Save all three fictional identities, their current review choices and the evidence limits as JSON, or print this queue. The JSON includes unreviewed findings. It is a presentation record, not an analyzed job or an audit history.</p>
+              <div className={styles.actions}>
+                <Button variant="outline" onClick={downloadReport} disabled={queue.length === 0}><Download aria-hidden="true" />Download review record (.json)</Button>
+                <Button variant="outline" onClick={() => window.print()} disabled={queue.length === 0}><Printer aria-hidden="true" />Print review queue</Button>
+              </div>
+              <p className={styles.muted} aria-live="polite">{downloadStatus || "Downloads are generated in this browser. No upload or network request is needed."}</p>
+            </div>
             <Separator />
             <div className={styles.exportStatus}>
               <LockKeyhole aria-hidden="true" className="text-primary" />
-              <div><h4>Machine-job export unavailable</h4><p id="demo-export-reason">No captured source, qualified writer, compatibility evidence or approved repair exists. No export file is produced by this demo.</p></div>
+              <div><h4>Machine-job export unavailable</h4><p id="demo-export-reason">No captured source, qualified writer, compatibility evidence or approved repair exists. The downloadable review record cannot be used as a machine job.</p></div>
               <Button variant="outline" disabled aria-describedby="demo-export-reason">Export machine job</Button>
             </div>
-            <Button onClick={() => navigate("board")}>Review another fictional finding<ArrowRight aria-hidden="true" /></Button>
+            <div className={styles.actions}>
+              {nextUnreviewed && <Button onClick={() => { setSelectedId(nextUnreviewed.id); navigate("evidence"); }}>Review next unreviewed finding<ArrowRight aria-hidden="true" /></Button>}
+              <Button variant="outline" onClick={() => navigate("board")}>Review another fictional finding<ArrowRight aria-hidden="true" /></Button>
+            </div>
+            {!nextUnreviewed && <p>All three fictional findings have a simulated decision. Review choices remain separate from teaching, verification and release.</p>}
           </section>
         )}
 

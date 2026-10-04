@@ -4,6 +4,14 @@
 .demo h4 { font-size: 14px; font-weight: 650; }
 .demo code { font-size: 11px; overflow-wrap: anywhere; }
 .banner { flex-direction: column; gap: 0; align-items: flex-start; }
+.presenter { border-left: 3px solid var(--scan-primary); border-radius: 0 8px 8px 0; background: var(--scan-accent-surface); padding: 16px 20px; margin: 16px 0; }
+.presenter p { margin: 8px 0 0; font-size: 13px; }
+.presenter p strong { color: var(--scan-primary); }
+.reviewSummary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 20px 0; }
+.reviewSummary > div { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--scan-border); border-radius: 8px; padding: 14px; background: var(--scan-muted-surface); }
+.reviewSummary strong { font-size: 22px; }
+.reviewSummary span { color: var(--scan-muted-text); font-size: 12px; }
+.report { border: 1px solid var(--scan-border); border-radius: 8px; padding: 18px; margin: 20px 0; }
 .stageHeading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 22px 0 16px; }
 .stageHeading h2 { font-size: 22px; font-weight: 600; margin-top: 4px; }
 .stageHeading h2:focus { outline-offset: 6px; }
@@ -48,6 +56,7 @@
   .intake { gap: 20px; padding: 22px; }
 }
 @media (max-width: 760px) {
+  .reviewSummary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .intake, .evidenceGrid, .findingList { grid-template-columns: 1fr; }
   .intake, .detail { padding: 18px; }
   .stageHeading h2 { font-size: 20px; }
@@ -56,4 +65,35 @@
   .boardTile svg { height: 65px; }
   .boardTile code { font-size: 12px; }
   .actions > button { white-space: normal; height: auto; min-height: 36px; }
+}
+
+@media print {
+  :global(body):has(.demo) { background: white; color-scheme: light; }
+  .demo *, .demo *::before, .demo *::after { transition: none !important; animation: none !important; }
+  .demo {
+    display: block; min-height: 0; background: white; color: #111; font-size: 10pt; color-scheme: light;
+    --scan-background: white; --scan-foreground: #111; --scan-panel: white;
+    --scan-muted-surface: white; --scan-muted-text: #444; --scan-border: #bbb;
+    --scan-primary: #075985; --scan-warning: #713f12;
+  }
+  .demo :global(.scan-sidebar), .demo :global(.scan-header-actions), .demo button,
+  .presenter, .report, .demo .actions { display: none; }
+  .demo :global(.scan-main) { padding: 0; }
+  .demo :global(.scan-header) { position: static; background: white; backdrop-filter: none; min-height: 0; }
+  .demo :global(.scan-panel) { background: white; box-shadow: none; overflow: visible; }
+  .demo :global(.scan-safety-banner) { border-color: #bbb; background: white; }
+  .demo :global(.scan-eyebrow) { margin: 0; }
+  .demo :global(.scan-coverage) { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .demo :global([data-slot="badge"]) { color: #111; background: white; border-color: #bbb; }
+  .stageHeading { margin: 12px 0; }
+  .detail { padding: 12px; }
+  .reviewSummary { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 12px 0; }
+  .reviewSummary > div { padding: 10px; }
+  .queue { gap: 12px; margin: 12px 0; }
+  .queueItem, .reviewSummary, .exportStatus, .demo :global(.scan-coverage) { break-inside: avoid; }
+  .queueItem { padding: 12px; }
+  .identity { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 10px 0; gap: 6px; }
+  .exportStatus { margin: 12px 0; }
+  .exportStatus p { margin-bottom: 0; }
+  .footer { font-size: 9pt; }
 }

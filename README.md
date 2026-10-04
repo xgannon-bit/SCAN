@@ -14,6 +14,9 @@ Capability descriptions below are development goals, not completed functionality
 A [synthetic walkthrough](docs/synthetic-demo.md) is available at `/demo`.
 It demonstrates exact placement selection and simulated review decisions with
 fictional data; it does not analyze files or produce machine jobs.
+Presenter notes, restart controls and downloadable synthetic review records are
+included. On Windows, run `.\scripts\start-demo.ps1` from this checkout to check
+prerequisites, build current source and start the local presentation.
 
 ## Intended workflow
 

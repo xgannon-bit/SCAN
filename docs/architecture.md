@@ -1,6 +1,8 @@
 # Standalone architecture
 
-Status: foundation specification; no analyzer or runtime has shipped from this scaffold.
+Status: local Next.js UI foundation and synthetic review walkthrough are implemented,
+along with a standalone Python ZIP inventory function. The browser does not yet
+invoke that worker. The end-to-end analysis pipeline below remains a target.
 
 ## Repository layout
 
@@ -20,7 +22,12 @@ Directory README files declare boundaries; they are not working services. Add mo
 
 User-selected local input -> bounded inventory -> explicit snapshot selection -> immutable hashed capture -> version-specific readers -> neutral model -> evidence findings -> visual review -> approved proposals -> gated candidate/debug export.
 
-Node invokes the Python worker through a bounded subprocess with structured JSON and no shell interpolation. The worker has no network listener. The frontend targets 127.0.0.1 on configurable port 3210. Actual runtime and dependency versions must be verified and pinned in the first runnable build.
+The planned integration will invoke the Python worker through a bounded subprocess
+with structured JSON and no shell interpolation. It is not connected yet. The worker
+has no network listener. The frontend targets 127.0.0.1 on configurable port 3210.
+Actual dependencies are pinned in package.json/package-lock.json; the tested Node
+version is recorded in .node-version. The demo's browser-generated review record is
+explicitly synthetic and is separate from the analyzer and session protocols.
 
 ## Storage outside Git
 
