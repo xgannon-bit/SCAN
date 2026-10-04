@@ -1,4 +1,9 @@
+@import "tailwindcss";
 @import "../styles/scan-tokens.css";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
 
 * {
   box-sizing: border-box;
@@ -607,4 +612,51 @@ button:disabled {
     transition-duration: 0ms !important;
     animation-duration: 0ms !important;
   }
+}
+
+@theme inline {
+  --font-sans: var(--scan-font-sans);
+  --font-heading: var(--scan-font-sans);
+  --color-background: var(--scan-background);
+  --color-foreground: var(--scan-foreground);
+  --color-primary: var(--scan-primary);
+  --color-primary-foreground: var(--scan-primary-foreground);
+  --color-secondary: var(--scan-muted-surface);
+  --color-secondary-foreground: var(--scan-foreground);
+  --color-muted: var(--scan-muted-surface);
+  --color-muted-foreground: var(--scan-muted-text);
+  --color-accent: var(--scan-accent-surface);
+  --color-accent-foreground: var(--scan-foreground);
+  --color-destructive: var(--scan-blocked);
+  --color-border: var(--scan-border);
+  --color-input: var(--scan-border);
+  --color-ring: var(--scan-primary);
+  --radius-sm: calc(var(--scan-radius) * 0.6);
+  --radius-md: calc(var(--scan-radius) * 0.8);
+  --radius-lg: var(--scan-radius);
+}
+
+:root, .dark {
+  --radius: var(--scan-radius);
+  --secondary: var(--scan-muted-surface);
+  --foreground: var(--scan-foreground);
+}
+
+.scan-header-actions { flex-wrap: wrap; justify-content: flex-end; }
+.scan-brand { border-bottom: 0; padding-bottom: 0; }
+.scan-nav-item { font-size: 13px; }
+.scan-grid { grid-template-columns: minmax(180px, 0.75fr) minmax(280px, 2.1fr) minmax(235px, 0.9fr); }
+.scan-panel-heading { flex-wrap: wrap; }
+.scan-panel-heading .scan-layer-toggles { justify-content: flex-start; }
+.scan-metric { gap: 8px; }
+.scan-main { overflow-wrap: anywhere; }
+@media (max-width: 1200px) {
+  .scan-grid { grid-template-columns: 1fr 1.7fr; }
+  .scan-evidence-panel { grid-column: 1 / -1; }
+}
+@media (max-width: 760px) {
+  .scan-header { flex-wrap: wrap; gap: 12px; }
+  .scan-header-actions { flex-direction: row; align-items: center; justify-content: flex-start; }
+  .scan-grid { grid-template-columns: 1fr; }
+  .scan-evidence-panel { grid-column: auto; }
 }

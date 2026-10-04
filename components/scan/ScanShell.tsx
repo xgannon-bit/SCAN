@@ -1,3 +1,11 @@
+"use client";
+
+import { FolderOpen, Info, Layers, LockKeyhole, ScanLine, Search } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
 const navItems = [
   "Jobs",
   "Board Workspace",
@@ -31,7 +39,7 @@ export function ScanShell() {
       <aside className="scan-sidebar" aria-label="Primary navigation">
         <div className="scan-brand">
           <span className="scan-brand-mark" aria-hidden="true">
-            S
+            <ScanLine aria-hidden="true" />
           </span>
           <div>
             <strong>SCAN</strong>
@@ -39,9 +47,12 @@ export function ScanShell() {
           </div>
         </div>
 
+        <Separator />
+
         <nav className="scan-nav">
           {navItems.map((item, index) => (
-            <button
+            <Button
+              variant="ghost"
               className={
                 index === 0 ? "scan-nav-item active" : "scan-nav-item"
               }
@@ -54,7 +65,7 @@ export function ScanShell() {
               {index !== 0 ? (
                 <span className="scan-nav-lock">Soon</span>
               ) : null}
-            </button>
+            </Button>
           ))}
         </nav>
 
@@ -74,10 +85,15 @@ export function ScanShell() {
             <h1>No job loaded</h1>
           </div>
           <div className="scan-header-actions">
-            <span className="scan-pill">Protocol v0.1</span>
-            <button className="scan-button primary" type="button" disabled>
-              Open Job
-            </button>
+            <Badge variant="outline">Protocol v0.1</Badge>
+            <Tooltip>
+              <TooltipTrigger render={<Button variant="ghost" size="icon" aria-label="Capability details" />}>
+                <Info aria-hidden="true" />
+              </TooltipTrigger>
+              <TooltipContent>Read-only shell. Live file analysis and machine-job export are unavailable.</TooltipContent>
+            </Tooltip>
+            <Button disabled><FolderOpen aria-hidden="true" />Open Job</Button>
+            <Button variant="outline" disabled><Search aria-hidden="true" />Analyze</Button>
           </div>
         </header>
 
@@ -105,11 +121,11 @@ export function ScanShell() {
                 <p className="scan-eyebrow">Findings</p>
                 <h2>Evidence queue</h2>
               </div>
-              <span className="scan-count">0</span>
+              <Badge variant="secondary" aria-label="Findings unknown">Unknown</Badge>
             </div>
             <div className="scan-empty compact">
               <span className="scan-empty-icon" aria-hidden="true">
-                ◇
+                <Search size={18} aria-hidden="true" />
               </span>
               <strong>Nothing to review yet</strong>
               <p>
@@ -130,9 +146,9 @@ export function ScanShell() {
                 aria-label="Viewer layers"
               >
                 {["Image", "CAD", "Gerber", "Part ROI"].map((layer) => (
-                  <span className="scan-layer disabled" key={layer}>
+                  <Badge variant="outline" className="opacity-50" key={layer}>
                     {layer}
-                  </span>
+                  </Badge>
                 ))}
               </div>
             </div>
@@ -143,7 +159,7 @@ export function ScanShell() {
                   className="scan-empty-icon large"
                   aria-hidden="true"
                 >
-                  ▦
+                  <Layers aria-hidden="true" />
                 </span>
                 <strong>Board evidence will appear here</strong>
                 <p>
@@ -165,16 +181,16 @@ export function ScanShell() {
               <li className="current">
                 <span>1</span>
                 <div>
-                  <strong>Install verified local runtime</strong>
-                  <p>Generate the lockfile and prove the shell builds.</p>
+                  <strong>Local UI foundation</strong>
+                  <p>Source intake is not connected to this interface.</p>
                 </div>
               </li>
               <li>
                 <span>2</span>
                 <div>
-                  <strong>Inventory user-selected inputs</strong>
+                  <strong>Read-only ZIP inventory worker</strong>
                   <p>
-                    Read-only ZIP discovery with hashes and explicit limits.
+                    A03 provides bounded ZIP inventory; no live job is loaded here.
                   </p>
                 </div>
               </li>
@@ -194,6 +210,9 @@ export function ScanShell() {
                 Candidate export remains disabled until adapter compatibility
                 and copy-only safety gates pass.
               </p>
+              <Button variant="outline" className="mt-3 w-full" disabled>
+                <LockKeyhole aria-hidden="true" />Export machine job
+              </Button>
             </div>
           </article>
         </section>
@@ -202,10 +221,11 @@ export function ScanShell() {
           {coverage.map(([label, value]) => (
             <div className="scan-metric" key={label}>
               <span>{label}</span>
-              <strong>{value}</strong>
+              <strong aria-label={`${label}: unknown`}>{value}</strong>
             </div>
           ))}
         </section>
+        <p className="mt-3 text-xs text-muted-foreground">— means unknown, not zero. Representation, enabled inspection, teaching, verification and release are separate states.</p>
       </main>
     </div>
   );

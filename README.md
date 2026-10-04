@@ -6,7 +6,10 @@ A local-first engineering companion for automated optical inspection programming
 
 ## Current status
 
-Repository foundation. This is not yet an installed analyzer, machine-compatible job writer, or released AOI program. Capability descriptions below are development goals, not completed functionality.
+Locally runnable UI foundation with pinned dependencies and repeatable browser
+acceptance. See [local setup and limits](docs/ui-foundation.md). This is not an
+installed analyzer, machine-compatible job writer, or released AOI program.
+Capability descriptions below are development goals, not completed functionality.
 
 ## Intended workflow
 
@@ -22,7 +25,11 @@ Original files remain immutable in approved private storage. Main, temporary, an
 
 ## Planned stack
 
-A standalone React/TypeScript/Next.js frontend with a dark navy/slate and cyan design language, plus a bounded local Python analysis worker. Runtime versions and dependencies will be selected and pinned in the first runnable build. No cloud database, remote inference, or production-machine integration is required for core analysis.
+A standalone React/TypeScript/Next.js frontend with Tailwind, shadcn/Base UI and
+lucide, using a dark navy/slate and cyan design language, plus a bounded local
+Python ZIP inventory worker. Actual versions are pinned in package.json and
+package-lock.json. No cloud database, remote inference, or production-machine
+integration is required for core analysis.
 
 See `AGENTS.md` and `docs/` on the development branch for the foundation and next implementation task. No third-party code or private repository history is being imported by this initialization.
 
