@@ -53,6 +53,28 @@ report and use the CLI reader with the original receipt hash when needed.
 
 ## Runtime boundaries
 
+### Windows desktop launch
+
+Run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-scan.ps1 -Mode Install`
+once from this checkout to install **Open SCAN** on the current user's desktop.
+The existing **Open SCAN Demo** shortcut is refreshed to the same launcher.
+Double-click either shortcut to build/start SCAN and open `http://127.0.0.1:3210/`.
+Allow up to three minutes for a cold build. Reopening the shortcut reuses the
+running server. An unrelated port owner is never stopped.
+
+The server belongs to an on-demand Windows scheduled task for the signed-in
+user, independent of Codex and terminal windows. It needs no administrator
+privileges or stored password. It has no scheduled or sign-in trigger; after
+restarting Windows or signing back in, use the shortcut again. Windows may
+suspend SCAN while the laptop sleeps. The task allows battery operation, has no
+execution time limit, and retries failures three times at one-minute intervals.
+Startup logs are under `%LOCALAPPDATA%\SCAN\desktop-server`.
+
+The shortcut starts the local application; it does not install dependencies or
+host a public website. Save the current review before closing/refreshing the
+browser. Saved reviews can be reopened from the dashboard. Server persistence
+does not change the application's in-memory review storage.
+
 Only same-origin loopback multipart requests are accepted. The browser cannot
 specify filesystem paths, destinations or worker limits. The host uses fixed
 opaque filenames in an owned OS temporary folder. Python is invoked directly
