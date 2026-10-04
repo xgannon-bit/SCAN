@@ -1,7 +1,8 @@
 # Standalone architecture
 
 Status: local Next.js UI foundation and synthetic review walkthrough are implemented,
-along with a standalone Python ZIP inventory function. The browser does not yet
+along with standalone Python ZIP inventory and explicit hashed snapshot capture.
+The browser does not yet
 invoke that worker. The end-to-end analysis pipeline below remains a target.
 
 ## Repository layout

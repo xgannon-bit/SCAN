@@ -1,3 +1,10 @@
 # Local analysis worker
 
-Future modules: bounded intake and snapshot capture; versioned read adapters; coordinate frames; structural/geometry rules; evidence; gated copy-only exporters. No worker has been implemented by this scaffold. Use structured JSON over stdin/stdout, sanitized errors, cancellation and resource limits. No shell interpolation, network listener or automatic execution of file contents. Original bytes remain immutable.
+Implemented: bounded ZIP inventory (A03), explicit snapshot capture (A04), and a
+single-request JSON CLI. Run `py -3 -m workers.scan.worker_cli` from the checkout.
+See [snapshot capture](../../docs/snapshot-capture.md) for the request contract.
+
+Future modules: versioned read adapters, coordinate frames, structural/geometry
+rules, evidence and gated copy-only exporters. The worker has no network listener
+and never executes file contents. Original bytes remain unchanged. The host must
+enforce subprocess cancellation and a wall-clock timeout.
