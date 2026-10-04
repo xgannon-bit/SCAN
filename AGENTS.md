@@ -16,3 +16,8 @@ Every repair is an explicitly reviewed, version-supported, copy-only proposal. R
 
 ## Delivery
 Keep implementation increments narrow and tested. Record exact source revision, actual commands/platform/results and unperformed checks. Synthetic tests are not a private-case run; XML export is not a machine load; a machine load is not defect-detection validation. No hosted CI, network service exposure, dependency installation, billing change or machine operation without appropriate authorization. Do not install a local model.
+
+## Project knowledge in Google Drive
+Use the owner's `10_SCAN` Google Drive folder as the shared project knowledge repository. Read `START HERE — SCAN`, the current Gerber-First AOI Workflow and Implementation Plan, and the latest Hourly Development Queue & Handoff before substantive development. Reconcile planning status against the actual Git branch, revision and local evidence; historical planning notes are not proof that implementation is missing.
+
+After a meaningful milestone, update the existing canonical handoff with the branch and exact commit, implemented behavior, actual test results, unresolved limits and next work. Preserve earlier evidence and owner notes; use revision-protected writes and verify the readback. Keep GitHub for code and synthetic fixtures, and keep manufacturing inputs and detailed private evidence outside this public repository. If Drive is unavailable, report the documentation gap and retain a local handoff for later synchronization.
