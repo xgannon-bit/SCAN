@@ -50,6 +50,12 @@ The native review now reports bounded literal reference checks and can download
 the complete original ZIP inside a preserved-source package with fresh evidence.
 This applies no native edits and does not generate a new Eagle program.
 
+Whole-project save/reopen now retains native archives and explicit selections
+alongside placement/Gerber preparation. Native component accounting distinguishes
+source rows, placement instances, duplicate groups and unresolved shared issues.
+See [copied-job output status](docs/native-output-status.md) for implemented
+behavior and the remaining candidate-writing and Eagle qualification work.
+
 A [synthetic walkthrough](docs/synthetic-demo.md) is available at `/demo`.
 It demonstrates exact placement selection and simulated review decisions with
 fictional data; it does not analyze files or produce machine jobs.

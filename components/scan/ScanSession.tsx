@@ -2,17 +2,24 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { PlacementConfig, PlacementPreview, PlacementResult } from "@/lib/scan/placement-types";
-import { decodeReview, downloadJson, encodeReview, encodeGerberDraft, type ReviewNotes, type RestoredGerber } from "@/lib/scan/review-session";
+import { downloadJson, encodeReview, encodeGerberDraft, type ReviewNotes, type RestoredGerber } from "@/lib/scan/review-session";
+import { decodeProject, encodeProject, retainProjectEvidence, type ProjectEvidence } from "@/lib/scan/project-session";
 import { useArchiveSession } from "./ArchiveSession";
 import { buildNativeQualification } from "@/lib/scan/native-qualification";
 import { useGerberSession } from "./GerberSession";
 
 const initial: PlacementConfig = { startRow: 1, columns: { refdes: 1, mpn: 2, xy: 4, side: 5, rotation: 6, footprint: 7 }, module: "", side: "", units: "unknown", rotationDirection: "unknown", decimalSeparator: ".", pairSeparator: "," };
 
+export function retainSessionNote(notes: ReviewNotes): ReviewNotes {
+  return Object.hasOwn(notes, "session") ? { session: notes.session } : {};
+}
+
 function usePlacementSession() {
   const archive = useArchiveSession();
   const returnedArchive = useArchiveSession();
-  const [eagleVersion, setEagleVersion] = useState("");
+  const [eagleVersion, updateEagleVersion] = useState("");
+  const [projectEvidence, setProjectEvidence] = useState<ProjectEvidence | undefined>();
+  const evidenceSources = useRef(new Map<File, string>());
   const qualification = useMemo(() => {
     if (!archive.archiveReview || !returnedArchive.archiveReview) return { report: null, error: "" };
     try { return { report: buildNativeQualification(archive.archiveReview, returnedArchive.archiveReview, eagleVersion), error: "" }; }
@@ -33,8 +40,21 @@ function usePlacementSession() {
   const controller = useRef<AbortController | null>(null);
   const revision = useRef(0);
   const gerber = useGerberSession(result);
+  function setEagleVersion(value: string) { revision.current += 1; updateEagleVersion(value); setNotice(""); }
 
   useEffect(() => () => { controller.current?.abort(); controller.current = null; }, []);
+  useEffect(() => {
+    const currentFiles = new Set([file, archive.archiveFile, returnedArchive.archiveFile, gerber.file]);
+    let changed = false;
+    for (const source of evidenceSources.current.keys()) if (!currentFiles.has(source)) { evidenceSources.current.delete(source); changed = true; }
+    if (changed && projectEvidence) {
+      const retained = retainProjectEvidence(projectEvidence, new Set(evidenceSources.current.values()));
+      if (retained.removed) {
+        setProjectEvidence(retained.evidence);
+        setNotice(`${retained.removed} historical annotation(s) invalidated because their source was removed or replaced. Annotations for retained sources remain available; none grant approval.`);
+      }
+    }
+  }, [file, archive.archiveFile, returnedArchive.archiveFile, gerber.file, projectEvidence]);
 
   // Invalidate pending responses synchronously, including clear from another screen.
   function invalidate() {
@@ -44,14 +64,14 @@ function usePlacementSession() {
     setBusy(false); setResult(null); setSelectedRow(null); setError(""); setNotice("");
   }
   function edit(changes: Partial<PlacementConfig>) {
-    invalidate(); setNotes({}); setConfig(previous => ({ ...previous, ...changes }));
+    invalidate(); setNotes(retainSessionNote); setConfig(previous => ({ ...previous, ...changes }));
   }
   function changeFile(value: File | null) {
-    invalidate(); setNotes({}); setFile(value); setPreview(null); setConfig(initial); setSheet(0); setDelimiter(",");
+    invalidate(); setNotes(retainSessionNote); setFile(value); setPreview(null); setConfig(initial); setSheet(0); setDelimiter(",");
   }
-  function changeSheet(value: number) { invalidate(); setNotes({}); setSheet(value); setPreview(null); }
-  function changeDelimiter(value: string) { invalidate(); setNotes({}); setDelimiter(value); setPreview(null); }
-  function reset() { changeFile(null); changeBaseline(null); gerber.reset(); setEagleVersion(""); }
+  function changeSheet(value: number) { invalidate(); setNotes(retainSessionNote); setSheet(value); setPreview(null); }
+  function changeDelimiter(value: string) { invalidate(); setNotes(retainSessionNote); setDelimiter(value); setPreview(null); }
+  function reset() { changeFile(null); changeBaseline(null); gerber.reset(); setEagleVersion(""); setNotes({}); setProjectEvidence(undefined); evidenceSources.current.clear(); }
   function cancel() {
     revision.current += 1;
     controller.current?.abort(); controller.current = null;
@@ -116,8 +136,31 @@ function usePlacementSession() {
     } catch (failure) { if (current === revision.current) setError(failure instanceof Error ? failure.message : "Review could not be saved. Your current work remains available."); }
   }
 
+  async function saveProject() {
+    if (busy || archive.archiveBusy || returnedArchive.archiveBusy || gerber.busy || gerber.alignBusy || (!file && !archive.archiveFile && !gerber.file)) return;
+    const current = revision.current; const originalRevision = archive.archiveRevision.current;
+    const returnedRevision = returnedArchive.archiveRevision.current; const geometryRevision = gerber.revision.current;
+    const abort = new AbortController(); controller.current?.abort(); controller.current = abort;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const output = await encodeProject({
+        placement: file ? { file, settings: { config, sheetIndex: sheet, delimiter, validated: !!result, selectedRow, notes } } : null,
+        gerber: gerber.file ? { file: gerber.file, settings: { config: gerber.config, points: gerber.points, scope: gerber.scope, tolerance: gerber.tolerance, basis: gerber.basis, checked: !!gerber.alignment } } : null,
+        original: archive.archiveFile ? { file: archive.archiveFile, selection: archive.selection, draft: archive.archiveDraft } : null,
+        returned: returnedArchive.archiveFile ? { file: returnedArchive.archiveFile, selection: returnedArchive.selection, draft: returnedArchive.archiveDraft } : null,
+        notes, machineVersion: eagleVersion, ...(projectEvidence ? { evidence: projectEvidence } : {}),
+      });
+      if (current !== revision.current || originalRevision !== archive.archiveRevision.current || returnedRevision !== returnedArchive.archiveRevision.current || geometryRevision !== gerber.revision.current || abort.signal.aborted) return;
+      const url = URL.createObjectURL(output); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "scan-project.scan-project.json"; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setNotice("Project saved with original sources, archive selections, mappings, notes and machine version. Reopening verifies bytes and recomputes findings and comparisons; native candidate writing remains unavailable.");
+    } catch (failure) { if (current === revision.current && !abort.signal.aborted) setError(failure instanceof Error ? failure.message : "Project could not be saved. Your current work remains available."); }
+    finally { if (controller.current === abort) { controller.current = null; setBusy(false); } }
+  }
+
   async function openReview(saved: File) {
     const current = ++revision.current;
+    const originalRevision = archive.archiveRevision.current; const returnedRevision = returnedArchive.archiveRevision.current;
+    const startingGeometryRevision = gerber.revision.current;
     controller.current?.abort();
     const abort = new AbortController(); controller.current = abort;
     setBusy(true); setError(""); setNotice("");
@@ -125,16 +168,44 @@ function usePlacementSession() {
     let geometryToRestore: RestoredGerber | undefined;
     let geometryRevision = -1;
     try {
-      const { record, source, gerber: savedGerber } = await decodeReview(saved);
-      if (current !== revision.current || abort.signal.aborted) return;
+      // Every embedded source is hash-checked before replacing any project state.
+      const restored = await decodeProject(saved);
+      if (current !== revision.current || abort.signal.aborted || originalRevision !== archive.archiveRevision.current || returnedRevision !== returnedArchive.archiveRevision.current || startingGeometryRevision !== gerber.revision.current) return;
+      const { placement, gerber: savedGerber } = restored;
+      evidenceSources.current = new Map([
+        ...(placement ? [[placement.source, placement.record.source.sha256] as const] : []),
+        ...(savedGerber ? [[savedGerber.file, savedGerber.draft.source.sha256] as const] : []),
+        ...(restored.original ? [[restored.original.file, restored.original.record.source.sha256] as const] : []),
+        ...(restored.returned ? [[restored.returned.file, restored.returned.record.source.sha256] as const] : []),
+      ]);
       gerber.reset();
+      // Install verified source drafts before any worker request, so cancellation
+      // or a parser failure cannot discard another source's saved settings.
+      if (savedGerber) {
+        gerber.changeFile(savedGerber.file); gerber.edit(savedGerber.draft.config);
+        gerber.editScope(savedGerber.draft.scope); gerber.editTolerance(savedGerber.draft.tolerance);
+        savedGerber.draft.points.forEach((point, index) => gerber.editPoint(index, point));
+      }
       geometryToRestore = savedGerber; geometryRevision = gerber.revision.current;
       // A hash-verified draft must remain editable even if its saved sheet or
       // mapping cannot currently be parsed. Derived results are never restored.
-      setFile(source); setConfig(record.config); setSheet(record.sheetIndex); setDelimiter(record.delimiter);
-      setPreview(null); setResult(null); setSelectedRow(null); setNotes(record.notes);
-      changeBaseline(null); sourceRestored = true;
+      setFile(placement?.source ?? null); setConfig(placement?.record.config ?? initial); setSheet(placement?.record.sheetIndex ?? 0); setDelimiter(placement?.record.delimiter ?? ",");
+      setPreview(null); setResult(null); setSelectedRow(null); setNotes(restored.record.notes);
+      changeBaseline(null); updateEagleVersion(restored.record.machineVersion); setProjectEvidence(restored.record.evidence); sourceRestored = true;
+      // One archive worker is allowed at a time. Keep the returned file visible
+      // while the original is inventoried, without reusing any saved reports.
+      if (restored.original) archive.loadArchiveDraft(restored.original);
+      if (restored.returned) returnedArchive.loadArchiveDraft(restored.returned);
+      const expectedReturnedRevision = returnedArchive.archiveRevision.current;
+      let archivesFresh = true;
+      if (restored.original) archivesFresh = await archive.restoreArchive(restored.original, abort.signal);
+      if (current !== revision.current || abort.signal.aborted) return;
+      if (restored.returned && returnedArchive.archiveRevision.current === expectedReturnedRevision) archivesFresh = await returnedArchive.restoreArchive(restored.returned, abort.signal) && archivesFresh;
+      else if (restored.returned) archivesFresh = false;
+      if (current !== revision.current || abort.signal.aborted) return;
       async function parse(action: "inspect" | "normalize") {
+        if (!placement) return null;
+        const { source, record } = placement;
         const form = new FormData();
         form.set("file", source); form.set("action", action); form.set("sheetIndex", String(record.sheetIndex));
         form.set("delimiter", record.delimiter); form.set("config", JSON.stringify(record.config));
@@ -144,14 +215,14 @@ function usePlacementSession() {
         if (value.sourceSha256 !== record.source.sha256) throw new Error("Saved source hash differs from the worker result.");
         return value;
       }
-      const freshPreview: PlacementPreview = await parse("inspect");
-      const freshResult: PlacementResult | null = record.validated ? await parse("normalize") : null;
+      const freshPreview: PlacementPreview | null = placement ? await parse("inspect") : null;
+      const freshResult: PlacementResult | null = placement?.record.validated ? await parse("normalize") : null;
       if (current !== revision.current || abort.signal.aborted) return;
       setPreview(freshPreview); setResult(freshResult);
       if (savedGerber && gerber.revision.current === geometryRevision) await gerber.restore(savedGerber, freshResult, abort.signal);
       if (current !== revision.current || abort.signal.aborted) return;
-      setSelectedRow(freshResult?.placements.some(placement => placement.sourceRow === record.selectedRow) ? record.selectedRow : null);
-      setNotice("Review reopened. Embedded placement bytes were hash-checked and parsed again locally; notes are user annotations.");
+      setSelectedRow(freshResult?.placements.some(value => value.sourceRow === placement?.record.selectedRow) ? placement!.record.selectedRow : null);
+      setNotice(restored.original ? archivesFresh ? "Project reopened. All embedded bytes were hash-checked; archive inventory, selected preflight and available comparisons were recomputed. Notes and historical evidence remain annotations." : "Project sources reopened after hash verification. Archive checks need attention; inspect the original and returned archive panels. No saved derived reports were trusted." : "Review reopened. Embedded source bytes were hash-checked and parsed again locally; notes are user annotations.");
     } catch (failure) {
       if (sourceRestored && geometryToRestore && current === revision.current && !abort.signal.aborted && gerber.revision.current === geometryRevision) await gerber.restore(geometryToRestore, null, abort.signal);
       if (current === revision.current && !abort.signal.aborted) setError(sourceRestored ? "Saved source and notes restored, but parsing failed. Open Source intake, correct the worksheet or mapping settings, and read the file again." : failure instanceof Error ? failure.message : "Saved review could not be opened.");
@@ -159,7 +230,7 @@ function usePlacementSession() {
   }
 
   const stage = busy ? "Processing source" : error ? "Import needs attention" : result ? result.status === "success" ? "Placement parsing complete" : "Placement review needs attention" : preview ? "Mapping needs validation" : file ? "Ready to read" : "No source loaded";
-  return { file, preview, result, config, sheet, delimiter, busy, error, selectedRow, notes, notice, stage, edit, changeFile, changeSheet, changeDelimiter, reset, cancel, run, download, setSelectedRow, editNote, saveReview, openReview, ...archive, changeArchive: changeBaseline, returnedArchive, eagleVersion, setEagleVersion, qualification, gerber };
+  return { file, preview, result, config, sheet, delimiter, busy, error, selectedRow, notes, notice, stage, edit, changeFile, changeSheet, changeDelimiter, reset, cancel, run, download, setSelectedRow, editNote, saveReview, saveProject, openReview, projectEvidence, ...archive, changeArchive: changeBaseline, returnedArchive, eagleVersion, setEagleVersion, qualification, gerber };
 }
 
 const ScanSessionContext = createContext<ReturnType<typeof usePlacementSession> | null>(null);

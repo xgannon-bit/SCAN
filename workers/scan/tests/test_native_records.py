@@ -73,3 +73,25 @@ class NativeRecordsTests(unittest.TestCase):
         report = read(job('<PartDataList>' + record*200 + '</PartDataList>'))
         self.assertEqual(report['status'], 'blocked')
         self.assertEqual(report['records'], [])
+
+    def test_nested_algorithms_have_exact_window_scope_and_keep_windows(self):
+        window = '<WindowData><ID>same-local-id</ID><AlgorithmDataList><AlgorithmData><ID>local-alg</ID><Type>unqualified</Type></AlgorithmData></AlgorithmDataList><ENABLE>False</ENABLE></WindowData>'
+        result = read(job('<WindowDataList>' + window * 2 + '</WindowDataList>'))
+        self.assertEqual(result['status'], 'recorded')
+        self.assertEqual(result['countsByRecordKind']['window-record'], 2)
+        self.assertEqual(result['countsByRecordKind']['algorithm-record'], 2)
+        algorithms = [r for r in result['records'] if r['kind'] == 'algorithm-record']
+        self.assertIn('WindowData[1]/AlgorithmDataList/AlgorithmData[1]', algorithms[0]['sourcePath'])
+        self.assertIn('WindowData[2]/AlgorithmDataList/AlgorithmData[1]', algorithms[1]['sourcePath'])
+        self.assertNotEqual(algorithms[0]['containerSourcePath'], algorithms[1]['containerSourcePath'])
+        self.assertTrue(all(r['rawFields']['ENABLE'] == ['False'] for r in result['records'] if r['kind'] == 'window-record'))
+
+    def test_native_pad_fields_remain_source_claims(self):
+        result = read(job('<GerberList><GerberPad><ID>pad-fable</ID><PartNo>part-not-proven</PartNo><C>2.7|8.9</C><WH>0.3|0.9</WH></GerberPad></GerberList>'))
+        self.assertEqual(result['countsByRecordKind']['pad-record'], 1)
+        self.assertEqual(result['records'][0]['rawFields']['PartNo'], ['part-not-proven'])
+        self.assertFalse(result['nativeSchemaQualified'])
+
+    def test_repeated_algorithm_container_within_same_window_is_blocked(self):
+        container = '<AlgorithmDataList><AlgorithmData><ID>t</ID></AlgorithmData></AlgorithmDataList>'
+        self.assertEqual(read(job('<WindowDataList><WindowData>' + container*2 + '</WindowData></WindowDataList>'))['status'], 'blocked')

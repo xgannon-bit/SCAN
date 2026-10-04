@@ -7,13 +7,14 @@ import { useScanSession } from "./ScanSession";
 import { buildSourceReport, sourceReportText } from "@/lib/scan/source-report";
 import { downloadJson } from "@/lib/scan/review-session";
 import { NativeQualification } from "./NativeQualification";
+import { NativeAccounting } from "./NativeAccounting";
 
 export function ReviewHandoff() {
   const { file, result, notes, archiveFile, archiveReview, setSelectedRow, qualification, gerber, runArchive, archiveBusy, archiveNotice, archiveError } = useScanSession();
   const [message, setMessage] = useState("");
   const [filter, setFilter] = useState("");
   const report = buildSourceReport({ sourceName: file?.name ?? null, result, notes, archiveName: archiveFile?.name ?? null, archive: archiveReview, nativeQualification: qualification.report, gerber: gerber.result, alignment: gerber.alignment });
-  const items = report.workItems.filter(item => `${item.reason} ${item.scope} ${item.sourceRow ?? ""} ${item.identity?.refdes ?? ""}`.toLowerCase().includes(filter.toLowerCase()));
+  const items = report.workItems.filter(item => `${item.reason} ${item.scope} ${item.sourceRow ?? ""} ${item.identity?.refdes ?? ""} ${item.nativeContext?.referenceLiteral ?? ""} ${item.nativeContext?.sourcePaths.join(" ") ?? ""}`.toLowerCase().includes(filter.toLowerCase()));
   function save(format: "json" | "text") {
     try {
       if (format === "json") downloadJson(report, "scan-source-review-handoff.json");
@@ -35,9 +36,10 @@ export function ReviewHandoff() {
     <section className="scan-panel" aria-labelledby="work-items-title"><div className="scan-panel-heading"><h2 id="work-items-title">Actionable findings ({report.workItems.length})</h2></div><div className="scan-panel-body">
       <label className="scan-field">Find work by reference, row or reason<input value={filter} onChange={event => setFilter(event.target.value)} /></label>
       <p>{items.length} matching items. Showing {Math.min(items.length, 100)}; downloads include every item.</p>
-      {items.slice(0, 100).map(item => <article className="scan-finding-card" key={item.id}><h3>{item.severity} · {item.scope}{item.sourceRow ? ` · Row ${item.sourceRow}` : ""}</h3>{item.identity && <p>{item.identity.module} / {item.identity.side} / {item.identity.refdes}</p>}<p>{item.reason}</p><p><strong>Next action:</strong> {item.nextAction}</p>{item.annotation && <p>User note: {item.annotation}</p>}{item.identity && item.sourceRow !== null && <Link href="/workspace" className={buttonVariants({ variant: "outline" })} onClick={() => setSelectedRow(item.sourceRow)}>Inspect source row {item.sourceRow}</Link>}</article>)}
+      {items.slice(0, 100).map(item => <article className="scan-finding-card" key={item.id}><h3>{item.severity} · {item.scope}{item.sourceRow ? ` · Row ${item.sourceRow}` : ""}</h3>{item.identity && <p>{item.identity.module} / {item.identity.side} / {item.identity.refdes}</p>}{item.nativeContext && <details><summary>Native evidence · {item.nativeContext.moduleLiteral ?? "Unresolved module"} / {item.nativeContext.referenceLiteral ?? "Job or unresolved reference"}</summary><p>Finding: {item.nativeContext.findingId ?? item.nativeContext.blockerId}</p><ul>{item.nativeContext.sourcePaths.slice(0, 50).map(path => <li key={path}>{path}</li>)}</ul>{item.nativeContext.sourcePaths.length > 50 && <p>Showing 50 paths; the complete review contains every path.</p>}</details>}<p>{item.reason}</p><p><strong>Next action:</strong> {item.nextAction}</p>{item.annotation && <p>User note: {item.annotation}</p>}{item.identity && item.sourceRow !== null && <Link href="/workspace" className={buttonVariants({ variant: "outline" })} onClick={() => setSelectedRow(item.sourceRow)}>Inspect source row {item.sourceRow}</Link>}</article>)}
       {!result && !archiveReview && <p>Validate a placement file or verify an existing job archive to build this review.</p>}
     </div></section>
+    <NativeAccounting />
     <NativeQualification />
     <section className="scan-panel scan-panel-body"><h2>Native preparation still required</h2><ul className="scan-issue-list">{report.requiredNativeWork.map(value => <li key={value}>{value}</li>)}</ul><p>Package completeness, offline programming coverage, machine compatibility, optical validation and production release remain unknown.</p></section>
   </div>;

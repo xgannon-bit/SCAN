@@ -257,6 +257,7 @@ def parse_gerber(
             raise _Blocked('FS digits must be in the supported 1..6 range')
         return CoordinateFormat(zero, notation, int(xi), int(xd), int(yi), int(yd))
 
+    parse_reached_end = False
     try:
         for extended, command in _commands(text, limits):
             if eof:
@@ -394,12 +395,16 @@ def parse_gerber(
             if len(objects) + len(sr_objects) >= limits.max_objects: raise _Blocked("object count exceeds configured limit")
             target.append(GerberObject(object_id, f'obj-{object_id:06d}', "draw" if op == 1 else "flash", aperture, polarity, None if base_x is None else _txt(base_x), None if base_y is None else _txt(base_y), _txt(nx), _txt(ny), None))
             x, y = nx, ny; supported.add("D01" if op == 1 else "D03")
+        parse_reached_end = True
     except _Blocked as exc:
         blocked.append(str(exc))
 
-    if not mo_seen: blocked.append("MO unit declaration is required")
-    if not fs_seen: blocked.append("FS coordinate format is required")
-    if not eof: blocked.append("M02 end-of-file command is required")
+    # An early failure leaves subsequent commands unassessed. It cannot establish
+    # that a declaration or EOF command is absent from the complete source.
+    if parse_reached_end:
+        if not mo_seen: blocked.append("MO unit declaration is required")
+        if not fs_seen: blocked.append("FS coordinate format is required")
+        if not eof: blocked.append("M02 end-of-file command is required")
     if _post_parse_hook: _post_parse_hook()
     try:
         after = source.stat()

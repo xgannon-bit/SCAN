@@ -9,9 +9,11 @@ from defusedxml.ElementTree import DefusedXMLParser
 
 _COLLECTIONS = {
     'JobContainer/ModuleDataList/ModuleData': ('module-record', {'ID', 'ArrayNo', 'ModelNo', 'TB', 'ENABLE', 'Angle', 'Shift/X', 'Shift/Y', 'RotCenter/X', 'RotCenter/Y'}),
-    'JobContainer/PartDataList/PartData': ('part-record', {'ID', 'No', 'Name', 'RefID', 'ModelNo', 'MasterKey', 'ParentId', 'ENABLE', 'CenterPosX', 'CenterPosY', 'CadOffset/X', 'CadOffset/Y', 'Roi/cx', 'Roi/cy', 'Roi/w', 'Roi/h', 'Roi/a'}),
+    'JobContainer/PartDataList/PartData': ('part-record', {'ID', 'No', 'Name', 'RefID', 'ModelNo', 'MasterKey', 'ParentId', 'ENABLE', 'PackageName', 'PartCode', 'ListGerPadId1', 'ListGerbPadId_Common1', 'WND_PAD', 'CenterPosX', 'CenterPosY', 'CadOffset/X', 'CadOffset/Y', 'Roi/cx', 'Roi/cy', 'Roi/w', 'Roi/h', 'Roi/a'}),
     'JobContainer/WindowDataList/WindowData': ('window-record', {'ID', 'Name', 'ParentId', 'ParentWndId', 'GroupID', 'ENABLE', 'RelRoi/cx', 'RelRoi/cy', 'RelRoi/w', 'RelRoi/h', 'RelRoi/a'}),
     'JobContainer/CadData/CpList/Cp': ('cad-record', {'ID', 'ModuleID', 'RefID', 'MountNo', 'PrntPartName', 'PrntSetName', 'X', 'Y', 'Ang'}),
+    'JobContainer/GerberList/GerberPad': ('pad-record', {'ID', 'ModelID', 'BlockID', 'PartNo', 'PartNoOld', 'C', 'MID', 'Cat', 'PinNumber', 'WH', 'WndTemp', 'PadFormat', 'Overlap', 'RegionType'}),
+    'JobContainer/WindowDataList/WindowData/AlgorithmDataList/AlgorithmData': ('algorithm-record', {'ID', 'Type', 'Use3D', 'Use2D'}),
 }
 
 
@@ -32,6 +34,7 @@ class _Records:
         self.total_text = 0
         self.duplicates = []
         self.containers = set()
+        self.parents = []
 
     def start(self, tag, attributes):
         self.nodes += 1
@@ -41,21 +44,28 @@ class _Records:
         if len(self.stack) == 1:
             self.root = tag
         path = '/'.join(self.stack)
+        # A nested collection has a distinct scope for each containing window.
+        prefix = self.current['sourcePath'] + path[len(self.collection):] if self.current and path.startswith(self.collection + '/') else path
         if path in {collection.rsplit('/', 1)[0] for collection in _COLLECTIONS}:
-            if path in self.containers:
+            if prefix in self.containers:
                 raise ValueError('repeated collection container')
-            self.containers.add(path)
+            self.containers.add(prefix)
         if path == 'JobContainer/JobXmlVersion':
             self.version_count += 1
             self.version = ''
         elif path.startswith('JobContainer/JobXmlVersion/'):
             self.version_nested = True
         if path in _COLLECTIONS:
-            if self.current is not None or len(self.records) >= 10_000:
+            if (self.current is not None and (_COLLECTIONS[path][0] != 'algorithm-record' or self.field is not None)) or len(self.records) + len(self.parents) >= 10_000:
                 raise ValueError('record limit')
+            parent_path = self.current['sourcePath'] if self.current else None
+            self.parents.append((self.current, self.collection, self.field, self.text))
             self.collection = path
-            self.ordinals[path] = self.ordinals.get(path, 0) + 1
-            self.current = {'kind': _COLLECTIONS[path][0], 'sourcePath': f'{path}[{self.ordinals[path]}]', 'rawFields': {}}
+            self.ordinals[prefix] = self.ordinals.get(prefix, 0) + 1
+            self.current = {'kind': _COLLECTIONS[path][0], 'sourcePath': f'{prefix}[{self.ordinals[prefix]}]', 'rawFields': {}}
+            if parent_path:
+                self.current['containerSourcePath'] = parent_path
+            self.field = self.text = None
         if self.current:
             relative = path[len(self.collection) + 1:]
             if relative in _COLLECTIONS[self.collection][1]:
@@ -86,7 +96,7 @@ class _Records:
             self.field = self.text = None
         if self.current and path == self.collection:
             self.records.append(self.current)
-            self.current = self.collection = None
+            self.current, self.collection, self.field, self.text = self.parents.pop()
         self.stack.pop()
 
     def close(self):

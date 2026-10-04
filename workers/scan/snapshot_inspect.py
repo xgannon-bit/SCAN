@@ -290,11 +290,20 @@ def inspect_snapshot(source_path, expected_package_sha256, limits=None):
                     elif records['duplicateScalarFields']:
                         report_holds.append({'code': 'NATIVE_SCALAR_AMBIGUITY', 'scope': role, 'reason': 'Repeated scalar fields occur in native records. Every value is retained; none was silently selected.', 'nextAction': 'Review the exact source paths and duplicate fields through the supported native-format workflow.'})
                 from .native_dependencies import report_literal_dependencies
+                from .native_accounting import analyze_native
+                from .native_bindings import report_native_bindings
+                accounting = analyze_native(native_records, {'archiveSha256': archive_hash, 'snapshotId': snapshot_id,
+                    'jobMember': manifest['selection']['job']['member'], 'jobSha256': manifest['selection']['job']['sha256']})
+                bindings = report_native_bindings(native_records)
+                # Bind every literal chain to the independently verified archive,
+                # capture and exact main/temp/backup choices, including no Master.
+                bindings['sourceContext'] = {'archiveSha256': archive_hash, 'packageSha256': expected,
+                    'snapshotId': snapshot_id, 'selection': manifest['selection']}
                 return {'status': 'success', 'code': 'PREFLIGHT_RECORDED', 'artifactType': 'scan.snapshot-preflight', 'schemaVersion': '1',
-                        'readerVersion': 'a05-records-3', 'packageSha256': expected, 'snapshotId': snapshot_id, 'source': manifest['source'],
+                        'readerVersion': 'native-bindings-1', 'packageSha256': expected, 'snapshotId': snapshot_id, 'source': manifest['source'],
                         'selection': manifest['selection'], 'integrity': {'status': 'verified-against-capture-hash', 'allArchivedFilesVerified': True},
                         'preservedFiles': actual_members, 'preservedDirectories': sorted(e.path for e in inventory.entries if e.is_directory),
-                        'xmlEnvelopes': documents, 'nativeRecords': native_records, 'literalDependencies': report_literal_dependencies(native_records), 'recordedCaptureLimits': manifest['limits'], 'readerLimits': asdict(limits),
+                        'xmlEnvelopes': documents, 'nativeRecords': native_records, 'literalDependencies': report_literal_dependencies(native_records), 'nativeAccounting': accounting, 'nativeBindings': bindings, 'recordedCaptureLimits': manifest['limits'], 'readerLimits': asdict(limits),
                         'readiness': {'packageComplete': None, 'offlinePreparationCoverage': None, 'machineCompatibility': None, 'opticalTeachingValidation': None, 'productionRelease': None},
                         'coverage': {'represented': None, 'enabled': None, 'taught': None, 'verified': None, 'released': None},
                         'dependencyGraph': None, 'nativeSchemaSupported': False, 'machineExportAllowed': False, 'candidateId': None,

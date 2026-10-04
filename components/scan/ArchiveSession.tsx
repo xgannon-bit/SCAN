@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ArchiveInventory, ArchiveReview, ArchiveSelection } from "@/lib/scan/archive-types";
 import { downloadJson } from "@/lib/scan/review-session";
+import { reviewMatchesSelection, selectionInInventory, type RestoredArchive } from "@/lib/scan/project-session";
 
 export function useArchiveSession() {
   const [archiveFile, setArchiveFile] = useState<File | null>(null);
@@ -14,17 +15,20 @@ export function useArchiveSession() {
   const [archiveError, setArchiveError] = useState("");
   const [archiveNotice, setArchiveNotice] = useState("");
   const controller = useRef<AbortController | null>(null);
+  const archiveRevision = useRef(0);
   useEffect(() => () => { controller.current?.abort(); controller.current = null; }, []);
   function invalidate() {
+    archiveRevision.current += 1;
     controller.current?.abort(); controller.current = null;
     setArchiveBusy(false); setArchiveReview(null); setArchiveError(""); setArchiveNotice("");
   }
   function changeArchive(file: File | null) { invalidate(); setArchiveFile(file); setInventory(null); setSelection(null); setArchiveDraft({ root: "", job: "", master: "" }); }
   function changeSelection(value: ArchiveSelection | null, draft: typeof archiveDraft) { invalidate(); setSelection(value); setArchiveDraft(draft); }
-  function cancelArchive() { controller.current?.abort(); controller.current = null; setArchiveBusy(false); setArchiveError("Archive operation cancelled."); }
+  function cancelArchive() { archiveRevision.current += 1; controller.current?.abort(); controller.current = null; setArchiveBusy(false); setArchiveError("Archive operation cancelled."); }
   async function runArchive(action: "inventory" | "preflight" | "download" | "reference") {
     const downloading = action === "download" || action === "reference";
     if (!archiveFile || (action !== "inventory" && (!inventory || !selection)) || (downloading && !archiveReview)) return;
+    archiveRevision.current += 1;
     controller.current?.abort();
     const abort = new AbortController(); controller.current = abort;
     setArchiveBusy(true); setArchiveError(""); setArchiveNotice("");
@@ -60,10 +64,57 @@ export function useArchiveSession() {
       if (controller.current === abort && !abort.signal.aborted) setArchiveError(failure instanceof Error ? failure.message : "Archive import failed.");
     } finally { if (controller.current === abort) { controller.current = null; setArchiveBusy(false); } }
   }
+  function loadArchiveDraft(saved: RestoredArchive) {
+    invalidate(); setArchiveFile(saved.file); setInventory(null);
+    setSelection(saved.record.selection); setArchiveDraft(saved.record.draft);
+  }
+  async function restoreArchive(saved: RestoredArchive, signal: AbortSignal): Promise<boolean> {
+    loadArchiveDraft(saved);
+    const current = archiveRevision.current;
+    const abort = new AbortController(); controller.current = abort;
+    const cancelRestore = () => abort.abort(); signal.addEventListener("abort", cancelRestore, { once: true });
+    if (signal.aborted) abort.abort();
+    const active = () => controller.current === abort && current === archiveRevision.current && !abort.signal.aborted;
+    const { record, file } = saved;
+    setArchiveBusy(true);
+    async function request(action: "inventory" | "preflight") {
+      const form = new FormData(); form.set("file", file); form.set("action", action);
+      form.set("expectedArchiveSha256", action === "inventory" ? "" : record.source.sha256);
+      form.set("selection", JSON.stringify(action === "inventory" ? null : record.selection));
+      form.set("expectedPackageSha256", "");
+      const response = await fetch("/api/archive", { method: "POST", body: form, signal: abort.signal });
+      const value = await response.json();
+      if (!response.ok || value.message) throw new Error(value.message || "Saved archive could not be read again locally.");
+      return value;
+    }
+    try {
+      const value = await request("inventory");
+      if (!active()) return false;
+      const fresh: ArchiveInventory | undefined = value.inventory;
+      if (!fresh || fresh.archive_sha256 !== record.source.sha256 || fresh.archive_size !== record.source.size) throw new Error("Restored archive inventory does not match the saved source hash and size.");
+      setInventory(fresh);
+      if (record.selection) {
+        if (!selectionInInventory(record.selection, fresh)) { setSelection(null); throw new Error("Saved snapshot selection is absent from the fresh inventory. Choose an exact job and master snapshot again."); }
+        setSelection(record.selection);
+        const reviewed: ArchiveReview = await request("preflight");
+        if (!active()) return false;
+        if (!reviewMatchesSelection(reviewed, record.selection, record.source)) throw new Error("Fresh preflight differs from the saved source or explicit snapshot selection.");
+        setArchiveReview(reviewed);
+      }
+      setArchiveNotice(record.selection ? "Archive restored; inventory and selected snapshot preflight were recomputed locally." : "Archive restored and inventoried again. Complete the explicit snapshot selection before preflight.");
+      return true;
+    } catch (failure) {
+      if (active()) setArchiveError(failure instanceof Error ? failure.message : "Saved archive could not be read again locally.");
+      return false;
+    } finally {
+      signal.removeEventListener("abort", cancelRestore);
+      if (controller.current === abort) { controller.current = null; setArchiveBusy(false); }
+    }
+  }
   function downloadArchiveReport() {
     if (!archiveReview) return;
     try { downloadJson(archiveReview, "scan-archive-preflight.json"); setArchiveNotice("Preflight report sent to browser downloads. Use Save source snapshot separately to preserve the captured package."); }
     catch { setArchiveError("Archive report could not be prepared. Try again."); }
   }
-  return { archiveFile, inventory, selection, archiveDraft, archiveReview, archiveBusy, archiveError, archiveNotice, changeArchive, changeSelection, cancelArchive, runArchive, downloadArchiveReport };
+  return { archiveFile, inventory, selection, archiveDraft, archiveReview, archiveBusy, archiveError, archiveNotice, changeArchive, changeSelection, cancelArchive, runArchive, downloadArchiveReport, loadArchiveDraft, restoreArchive, archiveRevision };
 }

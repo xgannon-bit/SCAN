@@ -21,6 +21,34 @@ class T(unittest.TestCase):
     def test_required_header_and_eof(self):
         for text, needle in [("%FSLAX24Y24*%\nM02*\n","MO"),("%MOMM*%\nM02*\n","FS"),("%MOMM*%\n%FSLAX24Y24*%\n","M02")]:
             r=parse_gerber(self.w(text,needle+".gbr")); self.assertEqual(r.status,"blocked"); self.assertTrue(any(needle in x for x in r.blocked_reasons))
+    def test_early_abort_does_not_claim_unvisited_declarations_are_missing(self):
+        cases = [
+            (g('%ADD10C,0.1*%\nD10*\nX1234567Y0D03*'), 'coordinate token exceeds declared FS width'),
+            ('D10*\n%MOMM*%\n%FSLAX24Y24*%\nM02*\n', 'Aperture selection precedes its definition'),
+            ('%MOMM*%\n%FSLAX24Y24*%\n%ADD10C,0.1*\nM02*\n', 'unterminated extended command block'),
+        ]
+        for index, (text, reason) in enumerate(cases):
+            with self.subTest(reason=reason):
+                source = self.w(text, f'early-{index}.gbr')
+                original = source.read_bytes()
+                result = parse_gerber(source)
+                self.assertEqual(result.status, 'blocked')
+                self.assertEqual(result.blocked_reasons, (reason,))
+                self.assertFalse(result.geometry_complete)
+                self.assertEqual(result.objects, ())
+                self.assertEqual(result.source_sha256, sha256(original).hexdigest())
+                self.assertEqual(source.read_bytes(), original)
+    def test_completed_parse_reports_truly_missing_eof_and_headers(self):
+        body = '%MOMM*%\n%FSLAX24Y24*%\n%ADD10C,0.1*%\nD10*\nX10000Y20000D03*\n'
+        result = parse_gerber(self.w(body, 'missing-eof.gbr'))
+        self.assertEqual(result.blocked_reasons, ('M02 end-of-file command is required',))
+        self.assertEqual(result.status, 'blocked')
+        self.assertFalse(result.geometry_complete)
+        self.assertEqual(result.objects, ())
+        result = parse_gerber(self.w('M02*\n', 'missing-headers.gbr'))
+        self.assertEqual(result.blocked_reasons, ('MO unit declaration is required', 'FS coordinate format is required'))
+        self.assertEqual(result.status, 'blocked')
+        self.assertFalse(result.geometry_complete)
     def test_repeated_header_blocks(self):
         for field in ["MO","FS"]:
             text="%MOMM*%\n%FSLAX24Y24*%\n"+("%MOMM*%\n" if field=="MO" else "%FSLAX24Y24*%\n")+"M02*\n"; self.assertEqual(parse_gerber(self.w(text,field+"2.gbr")).status,"blocked")

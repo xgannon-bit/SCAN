@@ -70,6 +70,12 @@ suspend SCAN while the laptop sleeps. The task allows battery operation, has no
 execution time limit, and retries failures three times at one-minute intervals.
 Startup logs are under `%LOCALAPPDATA%\SCAN\desktop-server`.
 
+Readiness also checks the dashboard's advertised JavaScript and CSS assets.
+If old HTML appears without those assets, use the verified `-Mode Restart`
+operation described in [desktop launch and restart](desktop-launch.md). Stopping
+only the Windows task can leave its Next.js child alive; never rebuild `.next`
+under a running server from this checkout, even on another port.
+
 The shortcut starts the local application; it does not install dependencies or
 host a public website. Save the current review before closing/refreshing the
 browser. Saved reviews can be reopened from the dashboard. Server persistence

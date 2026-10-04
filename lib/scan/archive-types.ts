@@ -1,9 +1,53 @@
+import type { NativeAccounting } from "./native-accounting";
 export type SnapshotRole = "main" | "temp" | "backup";
 export type LiteralDependencyReport = {
   artifactType: "scan.native-literal-dependencies"; schemaVersion: "1"; interpretation: "exact-source-string-correspondence-only"; detailLimit?: string;
   relations: { id: string; source: { document: string; kind: string; fields: string[] }; target: { document: string; kind: string; fields: string[] }; status: "checked" | "unavailable"; reason?: string; counts: { checked: number; unique: number; unmatched: number; ambiguous: number; unusableSourceKey: number; unusableTargetKeys: number } | null;
     examples: { sourcePath: string; sourceValues: string[]; state: "unusableSourceKey" | "unmatched" | "ambiguous"; targetCount: number; targetSourcePaths: string[]; targetsTruncated: boolean }[]; omittedExampleCount: number }[];
   limitations: string[]; requiredAssetsResolved: false; nativeSchemaQualified: false; machineExportAllowed: false;
+};
+export type NativeBindingMatch = {
+  state: string; targetCount: number; targetSourcePaths: string[]; omittedTargetCount: number;
+  sourceLiterals: Record<string, string | null>;
+  selectedWindowLiterals?: Record<string, string | null> | null;
+  selectedScopeLiterals?: Record<string, string | null> | null;
+  unscopedIdMatchCount?: number; unscopedTargetSourcePaths?: string[];
+};
+export type NativeBindingObservation = {
+  partSourcePath: string; sourceField: "WND_PAD"; segmentOrdinal: number;
+  rawSegment: string; tokens: string[]; state: "recorded" | "unsupported-token-count"; ownership: "unknown";
+  sentinelLikeLiterals?: { position: number; literal: string }[]; uninterpretedPositions?: number[];
+  window?: NativeBindingMatch; pad?: NativeBindingMatch;
+  coordinateComparison?: { tupleXYLiterals: string[]; padCenterLiterals: string[]; state: string; interpretation: string };
+};
+export type NativeLiteralBindings = {
+  artifactType: "scan.native-literal-bindings"; schemaVersion: "1"; analyzerVersion: string;
+  status: "recorded" | "blocked" | "unavailable"; code: string; reason?: string; readerProfile?: string;
+  sourceContext: { archiveSha256: string; packageSha256: string; snapshotId: string; selection: SnapshotPreflight["selection"] };
+  literalObservationsComplete: boolean; ownershipQualified: false; nativeSchemaQualified: false;
+  machineExportAllowed: false; nativeEditsApplied: false; repairEligibility: "unqualified";
+  interpretation?: string; scopeRules?: Record<string, string>; limitations?: string[];
+  counts: { parts: number; padRecords: number; cadRecords: number; masterWindowRecords: number;
+    unusablePadIdRecords: number; unusableCadKeyRecords: number; unusableWindowKeyRecords: number;
+    nonemptySegments?: number; sixFieldSegments?: number; unsupportedTokenCount?: number; emptySegments?: number;
+    "missing-scalar"?: number; "repeated-scalar"?: number; "empty-scalar"?: number;
+    findings: number; windowMatches: Record<string, number>; padMatches: Record<string, number>;
+    coordinateComparisons: Record<string, number>; masterDocumentAvailable: boolean;
+  } | null;
+  parts: { sourcePath: string; identityLiterals: Record<string, string[]>; wndPadLiterals: string[];
+    state: string; segmentCount: number; emptySegmentOrdinals: number[] }[];
+  bindings: NativeBindingObservation[];
+  findings: { code: string; severity: "observation"; sourcePath: string; segmentOrdinal: number | null;
+    message: string; ownershipQualified: false; repairEligibility: "unqualified" }[];
+  padCadRelationExperiment: { status: "relation-experiment-only"; ownershipEvidence: false;
+    sourceFields: string[]; targetFields: string[]; interpretation: string;
+    padJoinCounts: Record<string, number>; boundPartReferenceComparisonCounts: Record<string, number>;
+    examples: { partSourcePath: string; segmentOrdinal: number; padSourcePath: string;
+      padModelIDLiteral: string | null; padPartNoLiteral: string | null; candidateCadSourcePath: string | null;
+      candidateCadIdentityLiterals: Record<string, string | null> | null;
+      partRefIDLiteral: string | null; candidateCadRefIDLiteral: string | null; comparison: string }[];
+    omittedExampleCount: number;
+  } | null;
 };
 export type ArchiveSelection = { root: string; jobMember: string; jobRole: SnapshotRole; masterMember: string | null; masterRole: SnapshotRole | null };
 export type ArchiveInventory = {
@@ -22,6 +66,8 @@ export type SnapshotPreflight = {
   preservedFiles: { originalName: string; path: string; size: number; sha256: string; kind: string; inventoryRole: string }[];
   preservedDirectories: string[];
   literalDependencies?: LiteralDependencyReport;
+  nativeAccounting?: NativeAccounting;
+  nativeBindings?: NativeLiteralBindings;
   nativeRecords: Record<string, { status: "recorded" | "blocked" | "unsupported"; reason?: string; readerProfile?: string; schemaVersionClaim?: string; records: { kind: string; sourcePath: string; rawFields: Record<string, string[]> }[]; duplicateScalarFields?: { sourcePath: string; field: string }[]; countsByRecordKind?: Record<string, number> }>;
   xmlEnvelopes: Record<string, { status: "well-formed" | "blocked"; code?: string; reason?: string; rootName?: string; elementCount?: number; versionClaims?: unknown[] }>;
   readiness: { packageComplete: null; offlinePreparationCoverage: null; machineCompatibility: null; opticalTeachingValidation: null; productionRelease: null };
