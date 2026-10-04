@@ -8,6 +8,7 @@ import re
 import stat
 import zipfile
 from typing import Iterable, Literal
+from .zip_budget import ZipBudgetExceeded, check_zip_directory
 
 InventoryStatus = Literal["success", "blocked", "unsupported"]
 SnapshotRole = Literal["main", "temp", "backup", "unknown"]
@@ -275,6 +276,7 @@ def inventory_zip(
     reasons: list[str] = []
 
     try:
+        check_zip_directory(source, limits.max_entries)
         with zipfile.ZipFile(source, "r") as archive:
             infos = archive.infolist()
             if len(infos) > limits.max_entries:
@@ -387,7 +389,7 @@ def inventory_zip(
             job_roots=(),
             reasons=(str(error),),
         )
-    except IntakeBlocked as error:
+    except (IntakeBlocked, ZipBudgetExceeded) as error:
         return InventoryResult(
             status="blocked",
             archive_sha256=before_hash,

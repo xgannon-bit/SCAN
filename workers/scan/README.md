@@ -3,6 +3,10 @@
 Implemented: bounded ZIP inventory (A03), explicit snapshot capture (A04), and a
 single-request JSON CLI. Run `py -3 -m workers.scan.worker_cli` from the checkout.
 See [snapshot capture](../../docs/snapshot-capture.md) for the request contract.
+The `inspect-snapshot` action independently verifies a captured package and emits
+a read-only XML envelope/file inventory report. Use `.venv` Python for this action;
+see [snapshot preflight](../../docs/snapshot-preflight.md). Native semantic reading
+and required-dependency resolution are still unsupported.
 
 A07 CSV/XLSX intake is implemented in `placement_intake.py` and exposed through
 `placement_cli.py` and `/intake`. Use the pinned `.venv` interpreter and see

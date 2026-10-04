@@ -17,6 +17,10 @@ explicit units/rotation/identity, and downloads a normalized placement JSON.
 This is not a native machine job. Install the pinned Python worker dependencies
 in `.venv` as described in that guide before starting the app.
 
+The CLI also provides [snapshot preflight](docs/snapshot-preflight.md): independent
+capture-hash and full asset verification, safe XML envelope inspection and an
+explicit report of unsupported native checks. It produces no machine candidate.
+
 A [synthetic walkthrough](docs/synthetic-demo.md) is available at `/demo`.
 It demonstrates exact placement selection and simulated review decisions with
 fictional data; it does not analyze files or produce machine jobs.
@@ -26,7 +30,12 @@ prerequisites, build current source and start the local presentation.
 
 ## Intended workflow
 
-Open a local job snapshot -> analyze source evidence -> inspect board overlays -> review a proposed correction -> export a debug queue or a separately named, supported repair candidate.
+CAD/placement + Gerber, with an existing native job or supported starter when
+required -> independent source and native diagnostics -> reviewed corrections ->
+a complete native ATHENA/Eagle engineering candidate package, reports and a
+machine-side work queue. This supports both new preparation and existing-job
+recovery. See the [product requirements and bundle contract](docs/product-requirements.md).
+The current importers and demo are milestones toward that output, not substitutes.
 
 SCAN handles programming assistance and diagnosis. The companion release-control system retains validation and release authority; the inspection machine and SPC system retain their own operational responsibilities.
 

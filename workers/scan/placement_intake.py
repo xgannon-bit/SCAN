@@ -13,6 +13,7 @@ import zipfile
 from defusedxml import ElementTree as SafeXML
 import openpyxl
 from openpyxl.utils.cell import range_boundaries
+from .zip_budget import check_zip_directory
 
 MAX_BYTES = 8_000_000
 MAX_ROWS = 10_000
@@ -34,6 +35,7 @@ class Table:
 
 
 def _zip_guard(data: bytes) -> None:
+    check_zip_directory(io.BytesIO(data), 2000)
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         infos = archive.infolist()
         if len(infos) > 2000 or sum(i.file_size for i in infos) > MAX_XML:

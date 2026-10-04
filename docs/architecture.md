@@ -5,6 +5,11 @@ along with standalone Python ZIP inventory and explicit hashed snapshot capture.
 The browser's `/intake` page invokes the separate bounded CSV/XLSX placement
 worker through a same-origin loopback endpoint. ZIP snapshot capture remains
 CLI-only. The end-to-end native job pipeline below remains a target.
+Captured packages now have a CLI verification/XML envelope preflight reader.
+Preserved-file inventory is implemented; native dependency completeness and
+semantic interpretation remain unknown. The target is the
+[complete native engineering handoff](product-requirements.md), not a placement
+converter or report-only application.
 
 ## Repository layout
 

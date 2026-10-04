@@ -33,7 +33,8 @@ destinations and racing publication fail without overwriting. Filesystems withou
 this operation return a hold; there is no partial-copy fallback. Temporary data
 is cleaned from the newly allocated staging directory. Packages are immutable
 through this API, not protected by OS access controls. There is not yet a separate
-package verifier or native schema reader.
+native schema reader. The A05 `inspect-snapshot` action now independently verifies
+the package against its capture hash; see [snapshot preflight](snapshot-preflight.md).
 
 Limits: 100 MB archive, 10,000 entries, 250 MB per decompressed member, 1 GB total,
 250:1 declared compression ratio, 512-character member paths. The CLI does not

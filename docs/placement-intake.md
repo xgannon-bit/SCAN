@@ -61,6 +61,8 @@ cell. XLSX ZIP limits: 2,000 entries, 32 MB total decompressed, 16 MB per member
 250:1 compression ratio. All XML is checked with DTD/entity/external access
 forbidden. Macros, embedded objects and external relationships are unsupported.
 Incorrect worksheet dimension metadata cannot silently truncate input rows.
+The shared ZIP directory budget also runs before allocating archive entry objects;
+ZIP64 end directories and nonordinary prefixed/split archives are unsupported.
 
 The protected parser processes source contents locally. The API has no hosted
 inference integration and suppresses library warnings and exceptions containing

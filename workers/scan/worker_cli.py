@@ -37,6 +37,7 @@ def dispatch(request) -> dict:
         "inventory": {"protocolVersion", "action", "source"},
         "capture": {"protocolVersion", "action", "source", "destination", "expectedArchiveSha256", "selection"},
         "make-example": {"protocolVersion", "action", "destination"},
+        "inspect-snapshot": {"protocolVersion", "action", "source", "expectedPackageSha256"},
     }
     if not isinstance(action, str) or action not in fields or set(request) != fields[action]:
         return _error("INVALID_REQUEST", "Unknown action or missing/unrecognized request fields.")
@@ -49,6 +50,9 @@ def dispatch(request) -> dict:
             write_example(destination)
             return {"status": "success", "code": "SYNTHETIC_EXAMPLE_CREATED", "classification": "Wholly synthetic; not an Eagle/Athena job", "inventory": inventory_zip(destination).to_dict()}
         source = _path(request["source"])
+        if action == "inspect-snapshot":
+            from .snapshot_inspect import inspect_snapshot
+            return inspect_snapshot(source, _text(request["expectedPackageSha256"], 64))
         if action == "inventory":
             # Prevent a huge source from reaching A03's hashing/ZIP metadata reads.
             _fresh_hash(source, CaptureLimits().max_archive_bytes)
