@@ -2,9 +2,10 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { PlacementConfig, PlacementPreview, PlacementResult } from "@/lib/scan/placement-types";
-import { decodeReview, downloadJson, encodeReview, type ReviewNotes } from "@/lib/scan/review-session";
+import { decodeReview, downloadJson, encodeReview, encodeGerberDraft, type ReviewNotes, type RestoredGerber } from "@/lib/scan/review-session";
 import { useArchiveSession } from "./ArchiveSession";
 import { buildNativeQualification } from "@/lib/scan/native-qualification";
+import { useGerberSession } from "./GerberSession";
 
 const initial: PlacementConfig = { startRow: 1, columns: { refdes: 1, mpn: 2, xy: 4, side: 5, rotation: 6, footprint: 7 }, module: "", side: "", units: "unknown", rotationDirection: "unknown", decimalSeparator: ".", pairSeparator: "," };
 
@@ -31,11 +32,13 @@ function usePlacementSession() {
   const [notice, setNotice] = useState("");
   const controller = useRef<AbortController | null>(null);
   const revision = useRef(0);
+  const gerber = useGerberSession(result);
 
   useEffect(() => () => { controller.current?.abort(); controller.current = null; }, []);
 
   // Invalidate pending responses synchronously, including clear from another screen.
   function invalidate() {
+    gerber.placementChanged();
     revision.current += 1;
     controller.current?.abort(); controller.current = null;
     setBusy(false); setResult(null); setSelectedRow(null); setError(""); setNotice("");
@@ -48,7 +51,7 @@ function usePlacementSession() {
   }
   function changeSheet(value: number) { invalidate(); setNotes({}); setSheet(value); setPreview(null); }
   function changeDelimiter(value: string) { invalidate(); setNotes({}); setDelimiter(value); setPreview(null); }
-  function reset() { changeFile(null); changeBaseline(null); setEagleVersion(""); }
+  function reset() { changeFile(null); changeBaseline(null); gerber.reset(); setEagleVersion(""); }
   function cancel() {
     revision.current += 1;
     controller.current?.abort(); controller.current = null;
@@ -99,13 +102,17 @@ function usePlacementSession() {
   }
 
   async function saveReview() {
-    if (!file || busy) return;
+    if (!file || busy || gerber.busy || gerber.alignBusy) return;
     const current = revision.current;
+    const geometryRevision = gerber.revision.current;
     try {
       const saved = await encodeReview(file, { config, sheetIndex: sheet, delimiter, validated: !!result, selectedRow, notes });
-      if (current !== revision.current) return;
-      downloadJson(saved, "scan-placement-review.scan-review.json");
-      setError(""); setNotice("Review saved to browser downloads, including the original placement source and mapping.");
+      const geometry = gerber.file ? await encodeGerberDraft(gerber.file, { config: gerber.config, points: gerber.points, scope: gerber.scope, tolerance: gerber.tolerance, basis: gerber.basis, checked: !!gerber.alignment }) : null;
+      if (current !== revision.current || geometryRevision !== gerber.revision.current) return;
+      const output = geometry ? { artifactType: "scan.source-review-session", schemaVersion: "1", placement: saved, gerber: geometry, machineExportAllowed: false } : saved;
+      if (new TextEncoder().encode(JSON.stringify(output, null, 2)).length > 26_000_000) throw new Error("Source review exceeds the 26 MB limit.");
+      downloadJson(output, "scan-placement-review.scan-review.json");
+      setError(""); setNotice(geometry ? "Review saved with original placement and Gerber bytes, interpretations and control points. Reopening reparses both and recomputes alignment." : "Review saved to browser downloads, including the original placement source and mapping.");
     } catch (failure) { if (current === revision.current) setError(failure instanceof Error ? failure.message : "Review could not be saved. Your current work remains available."); }
   }
 
@@ -115,9 +122,13 @@ function usePlacementSession() {
     const abort = new AbortController(); controller.current = abort;
     setBusy(true); setError(""); setNotice("");
     let sourceRestored = false;
+    let geometryToRestore: RestoredGerber | undefined;
+    let geometryRevision = -1;
     try {
-      const { record, source } = await decodeReview(saved);
+      const { record, source, gerber: savedGerber } = await decodeReview(saved);
       if (current !== revision.current || abort.signal.aborted) return;
+      gerber.reset();
+      geometryToRestore = savedGerber; geometryRevision = gerber.revision.current;
       // A hash-verified draft must remain editable even if its saved sheet or
       // mapping cannot currently be parsed. Derived results are never restored.
       setFile(source); setConfig(record.config); setSheet(record.sheetIndex); setDelimiter(record.delimiter);
@@ -137,15 +148,18 @@ function usePlacementSession() {
       const freshResult: PlacementResult | null = record.validated ? await parse("normalize") : null;
       if (current !== revision.current || abort.signal.aborted) return;
       setPreview(freshPreview); setResult(freshResult);
+      if (savedGerber && gerber.revision.current === geometryRevision) await gerber.restore(savedGerber, freshResult, abort.signal);
+      if (current !== revision.current || abort.signal.aborted) return;
       setSelectedRow(freshResult?.placements.some(placement => placement.sourceRow === record.selectedRow) ? record.selectedRow : null);
       setNotice("Review reopened. Embedded placement bytes were hash-checked and parsed again locally; notes are user annotations.");
     } catch (failure) {
+      if (sourceRestored && geometryToRestore && current === revision.current && !abort.signal.aborted && gerber.revision.current === geometryRevision) await gerber.restore(geometryToRestore, null, abort.signal);
       if (current === revision.current && !abort.signal.aborted) setError(sourceRestored ? "Saved source and notes restored, but parsing failed. Open Source intake, correct the worksheet or mapping settings, and read the file again." : failure instanceof Error ? failure.message : "Saved review could not be opened.");
     } finally { if (controller.current === abort) { controller.current = null; setBusy(false); } }
   }
 
   const stage = busy ? "Processing source" : error ? "Import needs attention" : result ? result.status === "success" ? "Placement parsing complete" : "Placement review needs attention" : preview ? "Mapping needs validation" : file ? "Ready to read" : "No source loaded";
-  return { file, preview, result, config, sheet, delimiter, busy, error, selectedRow, notes, notice, stage, edit, changeFile, changeSheet, changeDelimiter, reset, cancel, run, download, setSelectedRow, editNote, saveReview, openReview, ...archive, changeArchive: changeBaseline, returnedArchive, eagleVersion, setEagleVersion, qualification };
+  return { file, preview, result, config, sheet, delimiter, busy, error, selectedRow, notes, notice, stage, edit, changeFile, changeSheet, changeDelimiter, reset, cancel, run, download, setSelectedRow, editNote, saveReview, openReview, ...archive, changeArchive: changeBaseline, returnedArchive, eagleVersion, setEagleVersion, qualification, gerber };
 }
 
 const ScanSessionContext = createContext<ReturnType<typeof usePlacementSession> | null>(null);

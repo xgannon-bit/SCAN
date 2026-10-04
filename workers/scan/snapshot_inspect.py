@@ -289,11 +289,12 @@ def inspect_snapshot(source_path, expected_package_sha256, limits=None):
                         report_holds.append({'code': 'NATIVE_RECORDS_' + records['status'].upper(), 'scope': role, 'reason': records['reason'], 'nextAction': 'Resolve the bounded native reader prerequisite before semantic interpretation; verified source bytes remain preserved.'})
                     elif records['duplicateScalarFields']:
                         report_holds.append({'code': 'NATIVE_SCALAR_AMBIGUITY', 'scope': role, 'reason': 'Repeated scalar fields occur in native records. Every value is retained; none was silently selected.', 'nextAction': 'Review the exact source paths and duplicate fields through the supported native-format workflow.'})
+                from .native_dependencies import report_literal_dependencies
                 return {'status': 'success', 'code': 'PREFLIGHT_RECORDED', 'artifactType': 'scan.snapshot-preflight', 'schemaVersion': '1',
-                        'readerVersion': 'a05-records-2', 'packageSha256': expected, 'snapshotId': snapshot_id, 'source': manifest['source'],
+                        'readerVersion': 'a05-records-3', 'packageSha256': expected, 'snapshotId': snapshot_id, 'source': manifest['source'],
                         'selection': manifest['selection'], 'integrity': {'status': 'verified-against-capture-hash', 'allArchivedFilesVerified': True},
                         'preservedFiles': actual_members, 'preservedDirectories': sorted(e.path for e in inventory.entries if e.is_directory),
-                        'xmlEnvelopes': documents, 'nativeRecords': native_records, 'recordedCaptureLimits': manifest['limits'], 'readerLimits': asdict(limits),
+                        'xmlEnvelopes': documents, 'nativeRecords': native_records, 'literalDependencies': report_literal_dependencies(native_records), 'recordedCaptureLimits': manifest['limits'], 'readerLimits': asdict(limits),
                         'readiness': {'packageComplete': None, 'offlinePreparationCoverage': None, 'machineCompatibility': None, 'opticalTeachingValidation': None, 'productionRelease': None},
                         'coverage': {'represented': None, 'enabled': None, 'taught': None, 'verified': None, 'released': None},
                         'dependencyGraph': None, 'nativeSchemaSupported': False, 'machineExportAllowed': False, 'candidateId': None,

@@ -82,8 +82,28 @@ CRC-checked streaming, entry limits, concurrency and timeouts remain in force.
 Required before a usable writer: exact Eagle application build; approved native
 field and relationship semantics; dependency resolution; confirmed source/frame
 correspondence; reviewed changes; copy-only serialization and preservation tests;
-and exact candidate load/save/reopen compatibility evidence. The separate A09
-Gerber branch is still held under the original session instruction.
+and exact candidate load/save/reopen compatibility evidence. A09 Gerber intake
+and rigid registration are now integrated under the user's expanded authorization.
+That registration does not qualify native coordinate or window semantics.
+
+## Literal references and preserved source output
+
+The read-only report checks exact strings for part-to-module, part-to-Master,
+Master-window-to-part, composite window-parent, CAD-to-module and scoped
+module/reference CAD-part relationships. It never joins CAD IDs to native part
+IDs or coerces numeric-looking strings. Repeated source scalars are unusable;
+duplicate target keys are ambiguous. Unmatched parent-window values may have
+unqualified sentinel meanings. Missing/unsupported documents report unavailable
+checks, not empty relationships. Examples are capped at 25 per relation and five
+target paths, with full counts. The additional report is capped at 500 KB.
+
+Handoff can download `scan-preserved-native-reference.zip`. Its
+`NATIVE_SOURCE.zip` is the complete original archive byte-for-byte, alongside
+fresh `SCAN_REFERENCE.json` evidence and a README. The worker recreates the
+reviewed capture, checks the expected capture hash, copies and reopens the
+original ZIP payload, and verifies its hash before streaming the output. No
+native edits are applied. This is a preserved source baseline for further
+engineering and authorized Eagle testing; it is not a newly programmed job.
 
 Public fixtures are independently authored record examples, not vendor-created
 native jobs. Private acceptance material and detailed reports stay outside the

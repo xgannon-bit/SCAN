@@ -13,5 +13,9 @@ export function NativeRecordInventory({ report }: { report: SnapshotPreflight })
       {matches.slice(0, 50).map(record => <details key={`${record.document}:${record.sourcePath}`}><summary>{record.document} · {record.kind} · {record.sourcePath}</summary><dl className="scan-detail-grid">{Object.entries(record.rawFields).map(([field, values]) => <div key={field}><dt>{field}</dt><dd>{values.map((value, index) => <div key={index}>{value === "" ? "(empty source value)" : value}</div>)}</dd></div>)}</dl></details>)}
     </>}
     <p className="scan-caption">XML record counts are not programmed-component or inspection-coverage counts. Every original field and asset remains in the source snapshot.</p>
+    {report.literalDependencies && <details><summary>Native reference checks</summary><p>Exact source-string matches within the selected job and Master. These checks do not qualify vendor semantics or required asset completeness.</p>
+      {report.literalDependencies.relations.map(r => <details key={r.id}><summary>{r.id}: {r.counts ? `${r.counts.unique} unique · ${r.counts.unmatched} unmatched · ${r.counts.ambiguous} ambiguous · ${r.counts.unusableSourceKey} unusable source keys` : "unavailable"}</summary>{r.reason && <p>{r.reason}</p>}{r.counts && <p>{r.counts.unusableTargetKeys} unusable target keys</p>}{r.examples.map(e => <p key={e.sourcePath}>{e.sourcePath}: {e.state} · literal values {JSON.stringify(e.sourceValues)} · {e.targetCount} targets</p>)}{r.omittedExampleCount > 0 && <p>{r.omittedExampleCount} further examples omitted; counts include every record.</p>}</details>)}
+      {report.literalDependencies.limitations.map(v => <p key={v}>{v}</p>)}
+    </details>}
   </details>;
 }

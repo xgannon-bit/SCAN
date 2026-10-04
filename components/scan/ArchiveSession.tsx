@@ -22,30 +22,32 @@ export function useArchiveSession() {
   function changeArchive(file: File | null) { invalidate(); setArchiveFile(file); setInventory(null); setSelection(null); setArchiveDraft({ root: "", job: "", master: "" }); }
   function changeSelection(value: ArchiveSelection | null, draft: typeof archiveDraft) { invalidate(); setSelection(value); setArchiveDraft(draft); }
   function cancelArchive() { controller.current?.abort(); controller.current = null; setArchiveBusy(false); setArchiveError("Archive operation cancelled."); }
-  async function runArchive(action: "inventory" | "preflight" | "download") {
-    if (!archiveFile || (action !== "inventory" && (!inventory || !selection)) || (action === "download" && !archiveReview)) return;
+  async function runArchive(action: "inventory" | "preflight" | "download" | "reference") {
+    const downloading = action === "download" || action === "reference";
+    if (!archiveFile || (action !== "inventory" && (!inventory || !selection)) || (downloading && !archiveReview)) return;
     controller.current?.abort();
     const abort = new AbortController(); controller.current = abort;
     setArchiveBusy(true); setArchiveError(""); setArchiveNotice("");
-    if (action !== "download") setArchiveReview(null);
+    if (!downloading) setArchiveReview(null);
     if (action === "inventory") { setInventory(null); setSelection(null); setArchiveDraft({ root: "", job: "", master: "" }); }
     const form = new FormData();
     form.set("file", archiveFile); form.set("action", action);
     form.set("expectedArchiveSha256", action === "inventory" ? "" : inventory!.archive_sha256);
     form.set("selection", JSON.stringify(action === "inventory" ? null : selection));
-    form.set("expectedPackageSha256", action === "download" ? archiveReview!.capture.packageSha256 : "");
+    form.set("expectedPackageSha256", downloading ? archiveReview!.capture.packageSha256 : "");
     try {
       const response = await fetch("/api/archive", { method: "POST", body: form, signal: abort.signal });
       if (controller.current !== abort || abort.signal.aborted) return;
-      if (action === "download" && response.ok && response.headers.get("content-type") === "application/octet-stream") {
-        if (response.headers.get("x-scan-sha256") !== archiveReview!.capture.packageSha256 || Number(response.headers.get("content-length")) !== archiveReview!.capture.size) throw new Error("Snapshot response differs from the reviewed capture.");
+      if (downloading && response.ok && response.headers.get("content-type") === "application/octet-stream") {
+        if (action === "download" && (response.headers.get("x-scan-sha256") !== archiveReview!.capture.packageSha256 || Number(response.headers.get("content-length")) !== archiveReview!.capture.size)) throw new Error("Snapshot response differs from the reviewed capture.");
+        if (action === "reference" && (response.headers.get("x-scan-source-sha256") !== archiveReview!.preflight.source.sha256 || response.headers.get("x-scan-native-edits") !== "none" || !/^[a-f0-9]{64}$/.test(response.headers.get("x-scan-sha256") ?? ""))) throw new Error("Reference response differs from the reviewed source.");
         // The worker verifies the recreated package hash before streaming it.
         // Keep the browser Blob without allocating additional full-size buffers.
         const blob = await response.blob();
         if (controller.current !== abort || abort.signal.aborted) return;
-        if (blob.size !== archiveReview!.capture.size) throw new Error("Snapshot download is incomplete.");
-        const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "scan-source.scan-snapshot"; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-        setArchiveNotice("Verified source snapshot sent to browser downloads. This preserves source bytes; it is not an Eagle/Athena candidate.");
+        if (blob.size !== Number(response.headers.get("content-length"))) throw new Error("Snapshot download is incomplete.");
+        const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = action === "reference" ? "scan-preserved-native-reference.zip" : "scan-source.scan-snapshot"; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+        setArchiveNotice(action === "reference" ? "Preserved native source package downloaded with fresh integrity evidence. No native edits were applied; this is not a newly programmed job." : "Verified source snapshot sent to browser downloads. This preserves source bytes; it is not an Eagle/Athena candidate.");
       } else {
         const value = await response.json();
         if (controller.current !== abort || abort.signal.aborted) return;

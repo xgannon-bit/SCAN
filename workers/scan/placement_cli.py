@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import sys
 import warnings
+from hashlib import sha256
 
 from .placement_intake import IntakeError, MAX_BYTES, inspect_table, normalize, read_table
 from .snapshot_capture import _fresh_hash
@@ -27,6 +28,10 @@ def main():
             result = inspect_table(table, data) if request['action'] == 'inspect' else normalize(table, data, request['config'])
         if expected != result['sourceSha256'] or _fresh_hash(source, MAX_BYTES)[0] != expected:
             raise IntakeError('Source changed during reading. Select it again.')
+        if request['action'] == 'normalize':
+            result['normalizerVersion'] = 'placement-2'
+            result['delimiter'] = request['delimiter']
+            result['interpretationSha256'] = sha256(json.dumps(result, sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode()).hexdigest()
     except IntakeError as error:
         result = {'status': 'blocked', 'message': str(error), 'machineExportAllowed': False}
     except Exception:

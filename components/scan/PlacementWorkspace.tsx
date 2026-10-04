@@ -24,7 +24,7 @@ export function PlacementWorkspace() {
       ].map(([label, value]) => <div key={String(label)}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><details><summary>Placement and source identity</summary><p className="scan-hash">Placement ID: {selected.placementId}</p><p className="scan-hash">Source SHA-256: {result.sourceSha256}</p></details>
         <label className="scan-field scan-note-field">Placement review note<textarea disabled={busy} value={notes[`row:${selected.sourceRow}`] ?? ""} maxLength={2000} onChange={event => editNote(`row:${selected.sourceRow}`, event.target.value)} placeholder="Record evidence or machine-side work for this exact source row" /></label><p className="scan-caption">Notes are unverified engineering annotations. They do not resolve parser holds or authorize native changes.</p>
       </> : <p>Select a placement above to inspect its identity and source coordinates.</p>}
-        <p className="scan-caption">Confirmed units convert to millimeters and confirmed rotations to counterclockwise degrees. No origin shift, Gerber alignment or bottom-side mirror is applied. Board graphics, pad ownership and native inspection overlays are not available yet.</p>
+        <p className="scan-caption">Confirmed units convert to millimeters and confirmed rotations to counterclockwise degrees. These source values remain unchanged. Reviewed CAD-to-Gerber alignment is displayed separately above; pad ownership and native inspection overlays remain unqualified.</p>
       </div>
     </section>
   </div>;

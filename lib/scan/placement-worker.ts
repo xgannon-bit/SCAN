@@ -12,7 +12,7 @@ export function permittedOrigin(origin: string | null, host: string | null): boo
   return origin === `http://${host}`;
 }
 
-export async function placementWorker(bytes: Buffer, control: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {
+export async function placementWorker(bytes: Buffer, control: Record<string, unknown>, signal: AbortSignal, module: "placement_cli" | "geometry_cli" = "placement_cli"): Promise<unknown> {
   if (!bytes.length || bytes.length > MAX_UPLOAD) throw new Error("Select a nonempty file no larger than 8 MB.");
   const release = reserveWorker("placement");
   let directory: string | undefined;
@@ -28,7 +28,7 @@ export async function placementWorker(bytes: Buffer, control: Record<string, unk
     if (Buffer.byteLength(request) > 16_384) throw new Error("Import configuration is too large.");
     return await new Promise((resolve, reject) => {
       // This runtime is installed locally, never bundled into a deployment.
-      const child = spawn(/* turbopackIgnore: true */ interpreter, ["-m", "workers.scan.placement_cli"], {
+      const child = spawn(/* turbopackIgnore: true */ interpreter, ["-m", `workers.scan.${module}`], {
         cwd: process.cwd(), shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"],
         env: { ...process.env, PYTHONUTF8: "1", OPENPYXL_DEFUSEDXML: "True", OPENPYXL_LXML: "False" },
       });
@@ -55,7 +55,7 @@ export async function placementWorker(bytes: Buffer, control: Record<string, unk
         try {
           if (code !== 0 && code !== 2) throw new Error();
           const response = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-          if (response.protocolVersion !== "1" || !["success", "blocked"].includes(response.result?.status)) throw new Error();
+          if (response.protocolVersion !== "1" || !["success", "blocked", ...(module === "geometry_cli" ? ["unsupported"] : [])].includes(response.result?.status)) throw new Error();
           resolve(response.result);
         } catch { reject(new Error("Local worker returned an invalid result. No file was changed.")); }
       });

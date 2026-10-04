@@ -53,6 +53,20 @@ test('wrong hashes, unknown/path fields and invalid selection fail closed', asyn
   assert.equal(result.machineExportAllowed, false);
 });
 
+test('preserved native reference streams verified evidence without applying native edits', async () => {
+  const before = await dirs();
+  const review = await (await archiveWorker(bytes, control, signal())).json();
+  const response = await archiveWorker(bytes, { ...control, action: 'reference', expectedPackageSha256: review.capture.packageSha256 }, signal());
+  assert.equal(response.headers.get('x-scan-source-sha256'), hash(bytes));
+  assert.equal(response.headers.get('x-scan-native-edits'), 'none');
+  const output = Buffer.from(await response.arrayBuffer());
+  assert.equal(hash(output), response.headers.get('x-scan-sha256'));
+  assert.equal(output.length, Number(response.headers.get('content-length')));
+  assert.deepEqual(await dirs(), before);
+  const stale = await (await archiveWorker(bytes, { ...control, action: 'reference', expectedPackageSha256: '0'.repeat(64) }, signal())).json();
+  assert.equal(stale.status, 'blocked');
+});
+
 test('aborts, stream cancellation and unavailable interpreter release their temporary resources', async () => {
   const before = await dirs();
   const abort = new AbortController(); abort.abort();

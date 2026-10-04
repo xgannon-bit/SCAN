@@ -9,10 +9,10 @@ import { downloadJson } from "@/lib/scan/review-session";
 import { NativeQualification } from "./NativeQualification";
 
 export function ReviewHandoff() {
-  const { file, result, notes, archiveFile, archiveReview, setSelectedRow, qualification } = useScanSession();
+  const { file, result, notes, archiveFile, archiveReview, setSelectedRow, qualification, gerber, runArchive, archiveBusy, archiveNotice, archiveError } = useScanSession();
   const [message, setMessage] = useState("");
   const [filter, setFilter] = useState("");
-  const report = buildSourceReport({ sourceName: file?.name ?? null, result, notes, archiveName: archiveFile?.name ?? null, archive: archiveReview, nativeQualification: qualification.report });
+  const report = buildSourceReport({ sourceName: file?.name ?? null, result, notes, archiveName: archiveFile?.name ?? null, archive: archiveReview, nativeQualification: qualification.report, gerber: gerber.result, alignment: gerber.alignment });
   const items = report.workItems.filter(item => `${item.reason} ${item.scope} ${item.sourceRow ?? ""} ${item.identity?.refdes ?? ""}`.toLowerCase().includes(filter.toLowerCase()));
   function save(format: "json" | "text") {
     try {
@@ -31,6 +31,7 @@ export function ReviewHandoff() {
       {message && <p role="status">{message}</p>}
       <p className="scan-caption">This report is available for blocked reviews too. It is not the complete native engineering bundle and has no JOB_COPY. Placement-to-archive correspondence has not been verified.</p>
     </div></section>
+    <section className="scan-panel scan-panel-body"><h2>Preserved native job package</h2><p>Save the complete original native ZIP with freshly checked hashes, selected snapshot identities and dependency findings. Every original file remains inside NATIVE_SOURCE.zip. No CAD, Gerber or inspection edits are applied to the native job.</p><Button disabled={!archiveReview || archiveBusy} onClick={() => runArchive("reference")}>{archiveBusy ? "Preparing native source…" : "Download preserved native source package"}</Button>{archiveNotice && <p role="status">{archiveNotice}</p>}{archiveError && <p role="alert">{archiveError}</p>}<p className="scan-caption">Use the complete review download above to carry placement and Gerber alignment evidence. Creating a new Eagle/Athena program from these sources remains unavailable.</p></section>
     <section className="scan-panel" aria-labelledby="work-items-title"><div className="scan-panel-heading"><h2 id="work-items-title">Actionable findings ({report.workItems.length})</h2></div><div className="scan-panel-body">
       <label className="scan-field">Find work by reference, row or reason<input value={filter} onChange={event => setFilter(event.target.value)} /></label>
       <p>{items.length} matching items. Showing {Math.min(items.length, 100)}; downloads include every item.</p>

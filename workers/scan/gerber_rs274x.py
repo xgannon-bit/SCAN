@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from pathlib import Path
 import os
 import re
+import json
 from typing import Callable, Literal
 
 Status = Literal["success", "blocked", "unsupported"]
@@ -17,11 +18,12 @@ class GerberLimits:
     max_source_bytes: int = 20_000_000
     max_commands: int = 500_000
     max_apertures: int = 10_000
-    max_objects: int = 2_000_000
+    max_objects: int = 30_000
     max_sr_expansion: int = 100_000
-    max_numeric_token_length: int = 64
+    max_numeric_token_length: int = 24
     max_attribute_length: int = 2_048
     max_comment_length: int = 4_096
+    max_metadata_entries: int = 10_000
 
     def validate(self) -> None:
         if any(not isinstance(v, int) or v < 1 for v in asdict(self).values()):
@@ -84,6 +86,10 @@ class GerberResult:
     supported_features: tuple[str, ...]
     unsupported_features: tuple[str, ...]
     blocked_reasons: tuple[str, ...]
+    declared_coordinate_format: CoordinateFormat | None = None
+    interpretation_overrides: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
+    geometry_complete: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -93,7 +99,7 @@ class _Blocked(Exception):
     pass
 
 
-FS_RE = re.compile(r"^FS([LT])([AI])X(\d)(\d)Y(\d)(\d)$")
+FS_RE = re.compile(r"^FS([LT])([AI])X([0-9])([0-9])Y([0-9])([0-9])$")
 MO_RE = re.compile(r"^MO(MM|IN)$")
 AD_RE = re.compile(r"^ADD(\d+)(C|R|O|P)(?:,(.+))?$")
 SR_RE = re.compile(r"^SRX(\d+)Y(\d+)I([+-]?(?:\d+(?:\.\d*)?|\.\d+))J([+-]?(?:\d+(?:\.\d*)?|\.\d+))$")
@@ -128,11 +134,13 @@ def _txt(value: Decimal) -> str:
 def _num(token: str, limits: GerberLimits) -> Decimal:
     if len(token) > limits.max_numeric_token_length:
         raise _Blocked("numeric token exceeds configured length limit")
+    if not token.isascii() or not re.fullmatch(r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)', token):
+        raise _Blocked('numeric token must be a plain decimal without exponent notation')
     try:
         value = Decimal(token)
     except InvalidOperation as exc:
         raise _Blocked("invalid numeric token") from exc
-    if not value.is_finite():
+    if not value.is_finite() or abs(value) > 1_000_000_000:
         raise _Blocked("non-finite numeric token is unsupported")
     return value
 
@@ -162,6 +170,8 @@ def _commands(text: str, limits: GerberLimits) -> list[tuple[bool, str]]:
     buf: list[str] = []
 
     def add(block: str, extended: bool) -> None:
+        if block.strip() and not block.rstrip().endswith('*'):
+            raise _Blocked('command is missing its star terminator')
         chunks = [block.rstrip("*")] if extended and block.startswith("AM") else block.split("*")
         for raw in chunks:
             cmd = raw.strip()
@@ -190,7 +200,7 @@ def _attrs(values: dict[str, tuple[str, ...]]) -> tuple[tuple[str, tuple[str, ..
 
 
 def _empty(status: Status, digest: str, size: int, reason: str = "", unsupported: str = "") -> GerberResult:
-    return GerberResult(status, digest, size, "0.1", "unknown", None, "gerber-source-native", (), (), (), (), (), (unsupported,) if unsupported else (), (reason,) if reason else ())
+    return GerberResult(status, digest, size, "0.2", "unknown", None, "gerber-source-native", (), (), (), (), (), (unsupported,) if unsupported else (), (reason,) if reason else ())
 
 
 def parse_gerber(
@@ -198,17 +208,30 @@ def parse_gerber(
     limits: GerberLimits | None = None,
     *,
     _post_parse_hook: Callable[[], None] | None = None,
+    format_override: str | None = None,
+    assume_linear: bool = False,
 ) -> GerberResult:
     source = Path(path); limits = limits or GerberLimits(); limits.validate()
     if not source.is_file():
         return _empty("blocked", "", 0, "source Gerber is missing or is not a regular file")
-    before = source.stat(); digest = _hash(source)
+    before = source.stat(); digest = ''
     if before.st_size > limits.max_source_bytes:
         return _empty("blocked", digest, before.st_size, "source Gerber exceeds configured size limit")
     try:
-        text = source.read_bytes().decode("ascii")
+        with source.open('rb') as handle:
+            data = handle.read(limits.max_source_bytes + 1)
+        if len(data) > limits.max_source_bytes:
+            return _empty('blocked', '', len(data), 'source Gerber exceeds configured size limit')
+        digest = sha256(data).hexdigest()
+        text = data.decode("utf-8-sig")
     except UnicodeDecodeError:
-        return _empty("unsupported", digest, before.st_size, unsupported="NON_ASCII_SOURCE")
+        return _empty("unsupported", digest, before.st_size, unsupported="INVALID_UTF8_SOURCE")
+    except OSError:
+        return _empty('blocked', digest, before.st_size, 'Source could not be read')
+    if format_override is not None and (not isinstance(format_override, str) or not FS_RE.fullmatch(format_override)):
+        return _empty('blocked', digest, len(data), 'Invalid coordinate-format override')
+    if any(ord(c) < 32 and c not in '\t\r\n' for c in text):
+        return _empty('blocked', digest, len(data), 'Invalid control character in Gerber source')
 
     units: Units = "unknown"; fmt: CoordinateFormat | None = None
     apertures: dict[int, GerberAperture] = {}; file_attrs: dict[str, tuple[str, ...]] = {}; aper_attrs: dict[str, tuple[str, ...]] = {}
@@ -216,6 +239,23 @@ def parse_gerber(
     aperture: int | None = None; x: Decimal | None = None; y: Decimal | None = None; operation: int | None = None
     polarity: Literal["dark", "clear"] = "dark"; sr: tuple[int, int, Decimal, Decimal] | None = None
     object_id = 0; mo_seen = 0; fs_seen = 0; operation_seen = False; eof = False
+    declared = None; linear = assume_linear; overrides = []; warnings = set(); sr_objects = []; metadata_entries = 0
+    if assume_linear: overrides.append('Initial linear interpolation explicitly assumed by reviewer')
+    if type(assume_linear) is not bool:
+        return _empty('blocked', digest, len(data), 'Invalid linear interpolation override')
+
+    def integer(token):
+        if len(token) > 10 or not token.isascii() or not token.isdigit() or int(token) > 2147483647:
+            raise _Blocked('integer exceeds supported range')
+        return int(token)
+
+    def coordinate_format(command):
+        match = FS_RE.fullmatch(command)
+        if not match: raise _Blocked('Malformed FS declaration or override')
+        zero, notation, xi, xd, yi, yd = match.groups()
+        if any(int(v) < 1 or int(v) > 6 for v in (xi, xd, yi, yd)):
+            raise _Blocked('FS digits must be in the supported 1..6 range')
+        return CoordinateFormat(zero, notation, int(xi), int(xd), int(yi), int(yd))
 
     try:
         for extended, command in _commands(text, limits):
@@ -236,30 +276,67 @@ def parse_gerber(
                 if m:
                     fs_seen += 1
                     if fs_seen > 1: blocked.append("FS must appear exactly once"); continue
-                    zero, notation, xi, xd, yi, yd = m.groups()
-                    if zero != "L" or notation != "A": unsupported.add("UNSUPPORTED_FS_MODE")
-                    fmt = CoordinateFormat(zero, notation, int(xi), int(xd), int(yi), int(yd)); supported.add("FS"); continue
+                    if operation_seen: raise _Blocked('FS appears after an operation')
+                    declared = coordinate_format(command)
+                    fmt = coordinate_format(format_override) if format_override else declared
+                    if format_override and format_override != command: overrides.append('FS ' + command + ' -> ' + format_override)
+                    if fmt.zero_omission != "L" or fmt.notation != "A": unsupported.add("UNSUPPORTED_FS_MODE")
+                    supported.add("FS"); continue
                 m = AD_RE.fullmatch(command)
                 if m:
                     if len(apertures) >= limits.max_apertures: raise _Blocked("aperture count exceeds configured limit")
-                    code = int(m.group(1))
+                    code = integer(m.group(1))
                     if code < 10: blocked.append("aperture D-code must be 10 or greater"); continue
                     if code in apertures: blocked.append(f"aperture D{code} is defined more than once"); continue
-                    params = tuple(_txt(_num(v, limits)) for v in (m.group(3) or "").split("X") if v)
+                    raw_values = (m.group(3) or '').split('X', 4)
+                    if len(raw_values) > 4: raise _Blocked('Too many aperture parameters')
+                    values = tuple(_num(v, limits) for v in raw_values)
+                    template = m.group(2)
+                    if len(values) not in {'C': (1, 2), 'R': (2, 3), 'O': (2, 3), 'P': (2, 3, 4)}[template]:
+                        raise _Blocked('Invalid standard aperture parameter count')
+                    if values[0] < 0 or (template != 'C' and values[0] == 0) or (template in ('R', 'O') and values[1] <= 0):
+                        raise _Blocked('Invalid aperture dimensions')
+                    if template == 'P' and (values[1] != int(values[1]) or not 3 <= values[1] <= 12):
+                        raise _Blocked('Polygon aperture needs 3..12 integer vertices')
+                    hole_index = {'C': 1, 'R': 2, 'O': 2, 'P': 3}[template]
+                    if len(values) > hole_index:
+                        hole = values[hole_index]
+                        if hole <= 0 or hole >= min(values[:2] if template in ('R', 'O') else values[:1]):
+                            raise _Blocked('Aperture hole does not fit')
+                        unsupported.add('APERTURE_HOLE_GEOMETRY')
+                    params = tuple(_txt(v) for v in values)
+                    metadata_entries += len(aper_attrs)
+                    if metadata_entries > limits.max_metadata_entries: raise _Blocked('Aperture metadata exceeds cumulative limit')
                     apertures[code] = GerberAperture(code, m.group(2), params, _attrs(aper_attrs)); supported.add("AD_" + m.group(2)); continue
                 if command in {"LPD", "LPC"}:
                     polarity = "dark" if command == "LPD" else "clear"; supported.add("LP"); continue
                 m = SR_RE.fullmatch(command)
                 if m:
-                    xc, yc = int(m.group(1)), int(m.group(2)); istep, jstep = _num(m.group(3), limits), _num(m.group(4), limits)
+                    if sr is not None: raise _Blocked('Nested SR blocks are unsupported')
+                    xc, yc = integer(m.group(1)), integer(m.group(2)); istep, jstep = _num(m.group(3), limits), _num(m.group(4), limits)
                     if xc < 1 or yc < 1: blocked.append("SR repeat counts must be positive"); continue
+                    if istep < 0 or jstep < 0: raise _Blocked('SR steps cannot be negative')
                     if xc * yc > limits.max_sr_expansion: raise _Blocked("SR expansion exceeds configured limit")
                     sr = (xc, yc, istep, jstep); repeats.append(StepRepeat(xc, yc, _txt(istep), _txt(jstep))); supported.add("SR"); continue
-                if command == "SR": sr = None; supported.add("SR"); continue
+                if command == "SR":
+                    if sr is None: raise _Blocked('SR end has no active repeat block')
+                    if len(objects) + len(sr_objects) * sr[0] * sr[1] > limits.max_objects: raise _Blocked('object count exceeds configured limit')
+                    for ix in range(sr[0]):
+                        for iy in range(sr[1]):
+                            dx, dy = sr[2] * ix, sr[3] * iy
+                            for item in sr_objects:
+                                objects.append(replace(item, instance_id=f'{item.instance_id}:sr-{ix}-{iy}', sr_instance=(ix, iy),
+                                    start_x=None if item.start_x is None else _txt(Decimal(item.start_x) + dx), start_y=None if item.start_y is None else _txt(Decimal(item.start_y) + dy),
+                                    end_x=_txt(Decimal(item.end_x) + dx), end_y=_txt(Decimal(item.end_y) + dy)))
+                    sr = None; sr_objects = []; x = y = None; operation = None; supported.add('SR'); continue
+                if command.startswith('LN'):
+                    if len(command) > limits.max_attribute_length: raise _Blocked('Layer name exceeds configured limit')
+                    warnings.add('Deprecated LN layer-name metadata preserved only in source bytes'); continue
                 m = ATTR_RE.fullmatch(command)
                 if m:
                     if len(command) > limits.max_attribute_length: raise _Blocked("attribute exceeds configured length limit")
                     target = file_attrs if m.group(1) == "TF" else aper_attrs
+                    if len(file_attrs) + len(aper_attrs) >= limits.max_metadata_entries: raise _Blocked('Attribute dictionary exceeds limit')
                     target[m.group(2)] = tuple(m.group(3).split(",")) if m.group(3) else (); supported.add(m.group(1)); continue
                 if command == "TD": aper_attrs.clear(); supported.add("TD"); continue
                 if command.startswith("TD."): aper_attrs.pop(command[3:], None); supported.add("TD"); continue
@@ -268,19 +345,26 @@ def parse_gerber(
             if command.startswith("G04"):
                 if len(command) > limits.max_comment_length: raise _Blocked("comment exceeds configured length limit")
                 supported.add("G04"); continue
-            if command == "M02": eof = True; supported.add("M02"); continue
+            if command == "M02":
+                if sr is not None: raise _Blocked('SR block is not closed before EOF')
+                eof = True; supported.add("M02"); continue
+            if command == 'G75': supported.add('G75'); continue
+            if len(command) > 5 * limits.max_numeric_token_length + 20: raise _Blocked('Geometry command exceeds length limit')
             bad = next((code for prefix, code in UNSUPPORTED_NORMAL if command.startswith(prefix)), None)
             if bad: unsupported.add(bad); continue
-            if command in {"G01", "G1"}: supported.add("G01"); continue
-            if command.startswith("G01"): supported.add("G01"); command = command[3:]
-            elif command.startswith("G1"): supported.add("G01"); command = command[2:]
+            if command in {"G01", "G1"}: linear = True; supported.add("G01"); continue
+            if command.startswith("G01"): linear = True; supported.add("G01"); command = command[3:]
+            elif command.startswith("G1"): linear = True; supported.add("G01"); command = command[2:]
+            if re.fullmatch(r'G54D\d+', command): command = command[3:]; warnings.add('Deprecated G54 aperture selection read')
             m = D_RE.fullmatch(command)
             if m:
-                code = int(m.group(1))
-                if code >= 10: aperture = code; supported.add("D_SELECT")
-                elif code in {1, 2, 3}: operation = code
-                else: unsupported.add("UNKNOWN_D_CODE")
-                continue
+                code = integer(m.group(1))
+                if code >= 10:
+                    if code not in apertures: raise _Blocked('Aperture selection precedes its definition')
+                    aperture = code; operation = None; supported.add("D_SELECT"); continue
+                if code not in {1, 2, 3}: unsupported.add("UNKNOWN_D_CODE"); continue
+            if not command.isascii() or not re.fullmatch(r'(?:X[+-]?[0-9]+)?(?:Y[+-]?[0-9]+)?(?:I[+-]?[0-9]+)?(?:J[+-]?[0-9]+)?(?:D[0-9]+)?', command):
+                unsupported.add('UNKNOWN_COMMAND'); continue
             fields = FIELD_RE.findall(command)
             if not fields or "".join(k + v for k, v in fields) != command:
                 unsupported.add("UNKNOWN_COMMAND"); continue
@@ -290,11 +374,11 @@ def parse_gerber(
             if "I" in mapping or "J" in mapping: unsupported.add("ARC_OFFSETS_WITHOUT_SUPPORTED_ARC"); continue
             if fmt is None: blocked.append("coordinate operation encountered before FS"); continue
             if units == "unknown": blocked.append("coordinate operation encountered before MO"); continue
-            op = int(mapping["D"]) if "D" in mapping else operation
+            op = integer(mapping["D"]) if "D" in mapping else operation
             if op is None: blocked.append("coordinate operation has no D01/D02/D03 state"); continue
             if op >= 10: blocked.append("aperture selection cannot be combined with coordinate operation"); continue
             if op not in {1, 2, 3}: unsupported.add("UNKNOWN_D_CODE"); continue
-            operation = op; operation_seen = True
+            operation = 1 if op == 1 else None; operation_seen = True
             nx, ny = x, y
             if "X" in mapping: nx = _coord(mapping["X"], fmt.x_integer, fmt.x_decimal, fmt.zero_omission, limits)
             if "Y" in mapping: ny = _coord(mapping["Y"], fmt.y_integer, fmt.y_decimal, fmt.zero_omission, limits)
@@ -303,12 +387,12 @@ def parse_gerber(
             if aperture is None: blocked.append("drawing operation has no selected aperture"); x, y = nx, ny; continue
             if aperture not in apertures: blocked.append(f"selected aperture D{aperture} is undefined"); x, y = nx, ny; continue
             if op == 1 and (x is None or y is None): blocked.append("D01 draw has no prior current point"); x, y = nx, ny; continue
+            if op == 1 and not linear: blocked.append('D01 draw requires explicit G01; initial interpolation is unspecified'); x, y = nx, ny; continue
+            if op == 1 and apertures[aperture].template != 'C': unsupported.add('NON_CIRCULAR_APERTURE_DRAW'); x, y = nx, ny; continue
             object_id += 1; base_x, base_y = (x, y) if op == 1 else (None, None)
-            instances = [(0, 0, Decimal(0), Decimal(0))] if sr is None else [(ix, iy, sr[2] * ix, sr[3] * iy) for iy in range(sr[1]) for ix in range(sr[0])]
-            if len(objects) + len(instances) > limits.max_objects: raise _Blocked("object count exceeds configured limit")
-            for ix, iy, dx, dy in instances:
-                sri = None if sr is None else (ix, iy); ident = f"obj-{object_id:06d}" if sri is None else f"obj-{object_id:06d}:sr-{ix}-{iy}"
-                objects.append(GerberObject(object_id, ident, "draw" if op == 1 else "flash", aperture, polarity, None if base_x is None else _txt(base_x + dx), None if base_y is None else _txt(base_y + dy), _txt(nx + dx), _txt(ny + dy), sri))
+            target = objects if sr is None else sr_objects
+            if len(objects) + len(sr_objects) >= limits.max_objects: raise _Blocked("object count exceeds configured limit")
+            target.append(GerberObject(object_id, f'obj-{object_id:06d}', "draw" if op == 1 else "flash", aperture, polarity, None if base_x is None else _txt(base_x), None if base_y is None else _txt(base_y), _txt(nx), _txt(ny), None))
             x, y = nx, ny; supported.add("D01" if op == 1 else "D03")
     except _Blocked as exc:
         blocked.append(str(exc))
@@ -317,7 +401,13 @@ def parse_gerber(
     if not fs_seen: blocked.append("FS coordinate format is required")
     if not eof: blocked.append("M02 end-of-file command is required")
     if _post_parse_hook: _post_parse_hook()
-    after = source.stat()
-    if after.st_size != before.st_size or _hash(source) != digest: blocked.append("source Gerber changed during parsing")
+    try:
+        after = source.stat()
+        with source.open('rb') as handle: fresh = handle.read(limits.max_source_bytes + 1)
+        if after.st_size != before.st_size or sha256(fresh).hexdigest() != digest: blocked.append("source Gerber changed during parsing")
+    except OSError: blocked.append('source Gerber changed during parsing')
     status: Status = "blocked" if blocked else "unsupported" if unsupported else "success"
-    return GerberResult(status, digest, before.st_size, "0.1", units, fmt, "gerber-source-native", _attrs(file_attrs), tuple(apertures[k] for k in sorted(apertures)), tuple(objects), tuple(repeats), tuple(sorted(supported)), tuple(sorted(unsupported)), tuple(dict.fromkeys(blocked)))
+    result = GerberResult(status, digest, len(data), "0.2", units, fmt, "gerber-source-native", _attrs(file_attrs), tuple(apertures[k] for k in sorted(apertures)), tuple(objects) if status == 'success' else (), tuple(repeats), tuple(sorted(supported)), tuple(sorted(unsupported)), tuple(dict.fromkeys(blocked)), declared, tuple(overrides), tuple(sorted(warnings)), status == 'success')
+    if len(json.dumps(result.to_dict(), ensure_ascii=True)) > 16_000_000:
+        return _empty('blocked', digest, len(data), 'serialized Gerber output exceeds 16 MB limit')
+    return result

@@ -14,13 +14,15 @@ Capability descriptions below are development goals, not completed functionality
 A connected dashboard at `/` shares a working
 [placement intake](docs/placement-intake.md) at `/intake`, source findings at
 `/findings`, and placement coordinate review at `/workspace`.
-It reads local XLSX/CSV, supports combined or separate XY columns, validates
+It reads local XLSX, literal-cell BIFF8 XLS and CSV, supports combined or separate XY columns, validates
 explicit units/rotation/identity, and downloads a normalized placement JSON.
 This is not a native machine job. Install the pinned Python worker dependencies
 in `.venv` as described in that guide before starting the app.
 File, mapping, results, notes and exact source-row selection survive navigation.
 Use **Save review** before refresh or close, then **Open saved review** to restore
-the embedded placement source and reparse it locally. No browser storage is used.
+the embedded placement source and reparse it locally. Selected Gerber bytes,
+interpretation settings and control points are included; alignment is recomputed
+from fresh parses when reopening. No browser storage is used.
 Source findings link to exact rows; `/handoff` exports all findings, parsed
 placements and remaining work, including blocked reviews. See the
 [connected demo workflow](docs/demo-workflow.md).
@@ -37,6 +39,16 @@ now reads observed JobContainer 10.2 records as literal source fields and compar
 every file in an original archive against a separately verified returned archive.
 Review handoff exports the hash-bound comparison. This is preservation evidence;
 native semantics, writer qualification and Eagle compatibility remain unfinished.
+
+[Gerber intake and rigid alignment](docs/gerber-alignment.md) are integrated into
+the same dashboard, intake, board workspace and handoff. Standard flashes and
+circular-aperture linear draws are supported with bounded step-repeat expansion.
+Explicit interpretation overrides preserve original bytes. Three noncollinear
+fit points and an independent check validate a rotation/translation for one
+module, side and board instance. Native semantics and pad ownership stay separate.
+The native review now reports bounded literal reference checks and can download
+the complete original ZIP inside a preserved-source package with fresh evidence.
+This applies no native edits and does not generate a new Eagle program.
 
 A [synthetic walkthrough](docs/synthetic-demo.md) is available at `/demo`.
 It demonstrates exact placement selection and simulated review decisions with

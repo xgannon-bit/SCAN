@@ -1,6 +1,7 @@
 # A07 placement intake
 
-Open `/intake` on the running loopback app. Select a local `.xlsx` or UTF-8 `.csv`,
+Open `/intake` on the running loopback app. Select a local `.xlsx`, literal-cell
+OLE BIFF8 `.xls`, or UTF-8 `.csv`,
 read its preview, select a worksheet and confirm the column mapping. For a
 headerless input, first data row is 1. Separate X/Y and a combined XY text cell
 are supported. Map module/side columns or enter explicit sheet-wide values.
@@ -33,7 +34,8 @@ shows actual read/parse counts, mapping state, holds and the available next step
 Source findings at `/findings` lists the parser's holds and row issues. Board
 workspace at `/workspace` lets you select any parsed source row and inspect its
 module, side, reference, MPN, footprint, original decimal coordinates, converted
-coordinates and source identity. It currently has no board graphics or overlays.
+coordinates and source identity. A separate [Gerber overlay](gerber-alignment.md)
+uses an explicitly reviewed rigid transform without changing these source values.
 
 Client navigation and browser Back/Forward preserve the selected file, mapping,
 preview, result and placement selection. Returning to intake may show an empty
@@ -61,7 +63,7 @@ dashboard, preserving the active source session without mixing synthetic data.
 From this checkout on Windows:
 
 ```powershell
-py -3 -m venv .venv
+py -3.14 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --require-hashes --only-binary=:all: -r workers/requirements.txt
 ```
 

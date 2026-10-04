@@ -23,7 +23,7 @@ test('one source session survives dashboard, workspace, findings and browser his
   page.on('request', request => { if (new URL(request.url()).origin !== baseURL) external.push(request.url()); });
   await page.goto('/');
   await page.getByRole('link', { name: 'Open placement intake', exact: true }).click();
-  await page.getByLabel('Placement file (.xlsx or .csv)', { exact: true }).setInputFiles(file);
+  await page.getByLabel('Placement file (.xlsx, .xls or .csv)', { exact: true }).setInputFiles(file);
   await read(page); await validate(page);
   await nav(page, 'Job dashboard').click();
   await expect(page.getByRole('region', { name: 'Placement source', exact: true })).toContainText(file.name);

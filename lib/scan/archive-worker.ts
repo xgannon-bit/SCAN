@@ -55,11 +55,13 @@ export async function archiveWorker(bytes: Buffer, control: Record<string, unkno
       });
       child.stdin.end(request);
     });
-    if (control.action !== "download" || result.status !== "success") return Response.json(result, { headers });
+    if (!["download", "reference"].includes(String(control.action)) || result.status !== "success") return Response.json(result, { headers });
     const review = result as unknown as ArchiveReview;
-    const snapshot = path.join(directory, "result.scan-snapshot");
+    const reference = control.action === "reference";
+    const payload = reference ? review.reference : { sha256: review.capture.packageSha256, size: review.capture.size };
+    const snapshot = path.join(directory, reference ? "result.native-reference.zip" : "result.scan-snapshot");
     const info = await stat(snapshot);
-    if (review.artifactType !== "scan.archive-review" || review.machineExportAllowed !== false || review.capture.packageSha256 !== control.expectedPackageSha256 || !info.isFile() || info.size !== review.capture.size || info.size > 620_000_000) throw new Error("Archive snapshot does not match the reviewed capture.");
+    if (review.artifactType !== "scan.archive-review" || review.machineExportAllowed !== false || review.capture.packageSha256 !== control.expectedPackageSha256 || !payload || !/^[a-f0-9]{64}$/.test(payload.sha256) || (reference && review.reference?.nativeEditsApplied !== false) || !info.isFile() || info.size !== payload.size || info.size > (reference ? 125_000_000 : 620_000_000)) throw new Error("Archive snapshot does not match the reviewed capture.");
     if (signal.aborted) throw new Error("Archive import cancelled.");
     const input = createReadStream(snapshot);
     const reader = (Readable.toWeb(input) as ReadableStream<Uint8Array>).getReader();
@@ -82,6 +84,6 @@ export async function archiveWorker(bytes: Buffer, control: Record<string, unkno
       cancel: close,
     });
     streaming = true;
-    return new Response(body, { headers: { ...headers, "Content-Type": "application/octet-stream", "Content-Length": String(info.size), "Content-Disposition": 'attachment; filename="scan-source.scan-snapshot"', "X-SCAN-SHA256": review.capture.packageSha256 } });
+    return new Response(body, { headers: { ...headers, "Content-Type": "application/octet-stream", "Content-Length": String(info.size), "Content-Disposition": `attachment; filename="${reference ? "scan-preserved-native-reference.zip" : "scan-source.scan-snapshot"}"`, "X-SCAN-SHA256": payload.sha256, "X-SCAN-Source-SHA256": review.preflight.source.sha256, "X-SCAN-Native-Edits": "none" } });
   } finally { if (!streaming) await dispose(); }
 }

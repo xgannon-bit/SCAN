@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     if ([...form.keys()].length !== fields.length || fields.some((key) => form.getAll(key).length !== 1)) return reply({ message: "Import fields are missing or duplicated." }, 400);
     const file = form.get("file");
     if (!(file instanceof File) || file.size > 8_000_000 || !file.size) return reply({ message: "Select a nonempty file no larger than 8 MB." }, 400);
-    const format = file.name.toLowerCase().endsWith(".xlsx") ? "xlsx" : file.name.toLowerCase().endsWith(".csv") ? "csv" : null;
+    const format = file.name.toLowerCase().endsWith(".xlsx") ? "xlsx" : file.name.toLowerCase().endsWith(".xls") ? "xls" : file.name.toLowerCase().endsWith(".csv") ? "csv" : null;
     const action = form.get("action");
     const sheet = form.get("sheetIndex");
     const config = form.get("config");

@@ -29,7 +29,7 @@ test('placement through native record review, changed-asset comparison and compl
   page.on('pageerror', error => errors.push(error.message));
   page.on('request', request => { if (new URL(request.url()).origin !== baseURL) external.push(request.url()); });
   await page.goto('/intake');
-  await page.getByLabel('Placement file (.xlsx or .csv)', { exact: true }).setInputFiles({ name: 'authored.csv', mimeType: 'text/csv', buffer: Buffer.from('R99,FAKE-MPN,,"1,2",Top,0,SYNTHETIC\n') });
+  await page.getByLabel('Placement file (.xlsx, .xls or .csv)', { exact: true }).setInputFiles({ name: 'authored.csv', mimeType: 'text/csv', buffer: Buffer.from('R99,FAKE-MPN,,"1,2",Top,0,SYNTHETIC\n') });
   await page.getByRole('button', { name: 'Read file', exact: true }).click();
   await expect(page.getByText('1 source rows')).toBeVisible();
   await page.getByLabel('Module for this sheet').fill('AUTHORED');
@@ -60,6 +60,10 @@ test('placement through native record review, changed-asset comparison and compl
   expect((await download(page, 'Save native qualification (.txt)')).toString()).toContain('REMOVED | README.txt');
   const handoff = JSON.parse((await download(page, 'Download complete review (.json)')).toString());
   expect(handoff.nativeQualification).toEqual(report);
+  expect(handoff.nativePreflight.literalDependencies.machineExportAllowed).toBe(false);
+  const reference = await download(page, 'Download preserved native source package');
+  expect(reference.subarray(0, 4).toString('hex')).toBe('504b0304');
+  await expect(page.getByText('Preserved native source package downloaded with fresh integrity evidence.', { exact: false })).toBeVisible();
   expect(handoff.placements).toHaveLength(1);
   await expect(page.getByRole('button', { name: 'Export native candidate', exact: true })).toBeDisabled();
   await page.screenshot({ path: info.outputPath('native-integrity-review.png'), fullPage: true });

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { encodeReview, decodeReview, validateReviewSession } from '../lib/scan/review-session.ts';
+import { encodeReview, decodeReview, validateReviewSession, encodeGerberDraft } from '../lib/scan/review-session.ts';
 import { buildSourceReport, sourceReportText } from '../lib/scan/source-report.ts';
 import { placementWorker } from '../lib/scan/placement-worker.ts';
 
@@ -35,6 +35,18 @@ test('review save rejects a serialized document that cannot be reopened', async 
   const notes = Object.fromEntries(Array.from({ length: 1000 }, (_, i) => [`row:${i + 1}`, '\u0800'.repeat(2000)]));
   await assert.rejects(encodeReview(new File([Buffer.alloc(8_000_000, 65)], 'large.csv'), { ...settings, notes }), /14 MB save limit/);
   await assert.rejects(encodeReview(new File([Buffer.alloc(8_000_001)], 'large.csv'), settings), /8 MB/);
+});
+
+test('combined review preserves Gerber bytes and controls while rejecting forged derived results', async () => {
+  const gerber = new File(['%MOMM*%\n%FSLAX24Y24*%\nM02*'], 'fictional.gbr');
+  const draft = await encodeGerberDraft(gerber, { config: { formatOverride: null, assumeLinear: false }, points: Array.from({ length: 4 }, (_, i) => ({ id: String(i), role: i === 3 ? 'check' : 'fit', cad: ['', ''], gerber: ['', ''], evidence: '' })), scope: { module: '', side: '', boardInstance: '' }, tolerance: '.1', basis: '', checked: false });
+  const bundle = { artifactType: 'scan.source-review-session', schemaVersion: '1', placement: await encodeReview(source, settings), gerber: draft, machineExportAllowed: false };
+  const restored = await decodeReview(savedFile(bundle));
+  assert.equal(await restored.gerber.file.text(), await gerber.text());
+  assert.deepEqual(restored.gerber.draft.points, draft.points);
+  for (const change of [v => v.gerber.alignment = { status: 'success' }, v => v.machineExportAllowed = true, v => v.gerber.source.sha256 = '0'.repeat(64), v => v.gerber.points[1].id = '0', v => v.gerber.config.assumeLinear = 'yes']) {
+    const changed = structuredClone(bundle); change(changed); await assert.rejects(decodeReview(savedFile(changed)));
+  }
 });
 
 test('handoff retains duplicate source rows and notes without clearing actual parser holds', async () => {

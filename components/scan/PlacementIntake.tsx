@@ -23,7 +23,7 @@ export function PlacementIntake() {
       <h2 id="source-title">1. Select source</h2>
       <p>Files are processed on this laptop. Originals are read only. Your selected file and mapping stay available across SCAN screens. Refresh or Clear file resets the session.</p>
       <fieldset disabled={busy} className={styles.grid}>
-        <label>Placement file (.xlsx or .csv)<input ref={fileInput} type="file" accept=".xlsx,.csv" onChange={(e) => changeFile(e.target.files?.[0] || null)} /></label>
+        <label>Placement file (.xlsx, .xls or .csv)<input ref={fileInput} type="file" accept=".xlsx,.xls,.csv" onChange={(e) => changeFile(e.target.files?.[0] || null)} /></label>
         <label>CSV delimiter<select value={delimiter} onChange={(e) => changeDelimiter(e.target.value)}><option value=",">Comma</option><option value=";">Semicolon</option><option value={"\t"}>Tab</option></select></label>
         <label>Worksheet index (starts at 0)<input type="number" min="0" max="19" value={sheet} onChange={(e) => changeSheet(Number(e.target.value))} /></label>
       </fieldset>

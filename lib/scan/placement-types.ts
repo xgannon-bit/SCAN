@@ -21,6 +21,7 @@ export type PlacementPreview = {
 };
 
 export type PlacementResult = {
+  normalizerVersion?: string; delimiter?: string; interpretationSha256?: string;
   status: "success" | "blocked";
   artifactType: "scan.normalized-placements";
   sourceSha256: string;

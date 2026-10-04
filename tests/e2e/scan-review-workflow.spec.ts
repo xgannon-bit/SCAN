@@ -7,7 +7,7 @@ const nav = (page: Page, name: string) => page.getByRole('navigation', { name: '
 const file = { name: 'authored-review.csv', mimeType: 'text/csv', buffer: Buffer.from('R7,FIRST,,"1,2",Top,0,SYNTHETIC\nR7,SECOND,,"3,4",Top,90,SYNTHETIC\nD1,,,"5,6",Top,180,SYNTHETIC\n') };
 async function validate(page: Page) {
   await page.goto('/intake');
-  await page.getByLabel('Placement file (.xlsx or .csv)', { exact: true }).setInputFiles(file);
+  await page.getByLabel('Placement file (.xlsx, .xls or .csv)', { exact: true }).setInputFiles(file);
   await page.getByRole('button', { name: 'Read file', exact: true }).click();
   await expect(page.getByText('3 source rows')).toBeVisible();
   await page.getByLabel('Module for this sheet').fill('FICTIONAL-MODULE');
@@ -134,7 +134,7 @@ test('archive HTTP boundary rejects cross-origin, path injection and duplicate f
 
 test('saved draft with an incorrect worksheet reopens as an editable source', async ({ page }) => {
   await page.goto('/intake');
-  await page.getByLabel('Placement file (.xlsx or .csv)', { exact: true }).setInputFiles(file);
+  await page.getByLabel('Placement file (.xlsx, .xls or .csv)', { exact: true }).setInputFiles(file);
   await page.getByLabel('Worksheet index').fill('1');
   const saved = await download(page, 'Save review');
   await page.reload();

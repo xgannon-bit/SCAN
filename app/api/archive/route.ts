@@ -36,16 +36,16 @@ export async function POST(request: Request) {
     const file = form.get("file");
     if (!(file instanceof File) || !file.size || file.size > 100_000_000 || !file.name.toLowerCase().endsWith(".zip")) return reply("Select a nonempty ZIP no larger than 100 MB.");
     const action = form.get("action"), archiveHash = form.get("expectedArchiveSha256"), selection = form.get("selection"), packageHash = form.get("expectedPackageSha256");
-    if (typeof action !== "string" || !["inventory", "preflight", "download"].includes(action) || typeof selection !== "string" || selection.length > 8000 || typeof archiveHash !== "string" || typeof packageHash !== "string") return reply("Invalid archive settings.");
+    if (typeof action !== "string" || !["inventory", "preflight", "download", "reference"].includes(action) || typeof selection !== "string" || selection.length > 8000 || typeof archiveHash !== "string" || typeof packageHash !== "string") return reply("Invalid archive settings.");
     const control: Record<string, unknown> = { action };
     if (action === "inventory") {
       if (selection !== "null" || archiveHash !== "" || packageHash !== "") return reply("Inventory does not accept a prior selection or hash.");
     } else {
-      if (!/^[a-f0-9]{64}$/.test(archiveHash) || (action === "download" ? !/^[a-f0-9]{64}$/.test(packageHash) : packageHash !== "")) return reply("Review the current archive and snapshot hashes first.");
+      if (!/^[a-f0-9]{64}$/.test(archiveHash) || (["download", "reference"].includes(action) ? !/^[a-f0-9]{64}$/.test(packageHash) : packageHash !== "")) return reply("Review the current archive and snapshot hashes first.");
       let chosen: unknown;
       try { chosen = JSON.parse(selection); } catch { return reply("Invalid snapshot selection."); }
       control.expectedArchiveSha256 = archiveHash; control.selection = chosen;
-      if (action === "download") control.expectedPackageSha256 = packageHash;
+      if (["download", "reference"].includes(action)) control.expectedPackageSha256 = packageHash;
     }
     const bytes = Buffer.from(await file.arrayBuffer());
     transferred = true;

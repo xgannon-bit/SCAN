@@ -30,9 +30,9 @@ try {
   }
   $scanPythonPath = Join-Path $scanRoot '.venv\Scripts\python.exe'
   if (-not (Test-Path -LiteralPath $scanPythonPath -PathType Leaf)) {
-    throw 'Placement worker is missing. Run py -3 -m venv .venv, then .\.venv\Scripts\python.exe -m pip install --require-hashes --only-binary=:all: -r workers/requirements.txt in this checkout.'
+    throw 'Placement worker is missing. Run py -3.14 -m venv .venv, then .\.venv\Scripts\python.exe -m pip install --require-hashes --only-binary=:all: -r workers/requirements.txt in this checkout.'
   }
-  & $scanPythonPath -c "import openpyxl, defusedxml; assert openpyxl.__version__ == '3.1.5' and openpyxl.DEFUSEDXML; assert defusedxml.__version__ == '0.7.1'"
+  & $scanPythonPath -c "import openpyxl, defusedxml, xlrd, numpy; assert openpyxl.__version__ == '3.1.5' and openpyxl.DEFUSEDXML; assert defusedxml.__version__ == '0.7.1'; assert xlrd.__version__ == '2.0.2'; assert numpy.__version__ == '2.5.3'"
   if ($LASTEXITCODE -ne 0) { throw 'Placement worker dependencies do not match the pinned runtime. Reinstall workers/requirements.txt in .venv.' }
   # A second port still shares this checkout's .next build. Serialize this launcher
   # and also detect direct npm starts before touching the running server's assets.

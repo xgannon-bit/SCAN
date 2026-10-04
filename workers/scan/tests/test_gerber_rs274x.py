@@ -29,7 +29,7 @@ class T(unittest.TestCase):
             r=parse_gerber(self.w(g("",fs=fs),fs+".gbr")); self.assertEqual(r.status,"unsupported"); self.assertIn("UNSUPPORTED_FS_MODE",r.unsupported_features)
         self.assertNotEqual(parse_gerber(self.w(g("%ADD10C,0.1*%\nD10*\nX1.0Y2D03*"),"decimal.gbr")).status,"success")
     def test_negative_and_modal_coordinates(self):
-        r=parse_gerber(self.w(g("%ADD10C,0.1*%\nD10*\nX-10000Y10000D02*\nD01*\nX20000*"))); self.assertEqual(r.status,"success"); self.assertEqual((r.objects[0].start_x,r.objects[0].end_x,r.objects[0].end_y),("-1","2","1"))
+        r=parse_gerber(self.w(g("%ADD10C,0.1*%\nG01*\nD10*\nX-10000Y10000D02*\nD01*\nX20000*"))); self.assertEqual(r.status,"success"); self.assertEqual(len(r.objects),2); self.assertEqual((r.objects[1].start_x,r.objects[1].end_x,r.objects[1].end_y),("-1","2","1"))
     def test_apertures(self):
         r=parse_gerber(self.w(g("%ADD10C,0.25*%\n%ADD11R,0.6X0.4*%\n%ADD12O,0.7X0.5*%\n%ADD13P,1X6X30*%"))); self.assertEqual([a.template for a in r.apertures],["C","R","O","P"]); self.assertEqual(r.apertures[-1].parameters,("1","6","30"))
     def test_aperture_errors(self):
@@ -62,13 +62,47 @@ class T(unittest.TestCase):
         self.assertEqual(parse_gerber(self.w(g("G04 "+"x"*30+"*"),"comment.gbr"),GerberLimits(max_comment_length=12)).status,"blocked")
         self.assertEqual(parse_gerber(self.w(g("%ADD10C,123456789*%"),"num.gbr"),GerberLimits(max_numeric_token_length=4)).status,"blocked")
     def test_non_ascii(self):
-        p=self.root/"bad.gbr"; p.write_bytes(b"%MOMM*%\n%FSLAX24Y24*%\nG04 \xff*\nM02*\n"); self.assertIn("NON_ASCII_SOURCE",parse_gerber(p).unsupported_features)
+        p=self.root/"bad.gbr"; p.write_bytes(b"%MOMM*%\n%FSLAX24Y24*%\nG04 \xff*\nM02*\n"); self.assertIn("INVALID_UTF8_SOURCE",parse_gerber(p).unsupported_features)
+    def test_standalone_flash_and_modal_reset(self):
+        r=parse_gerber(self.w(g('%ADD10C,1*%\nD10*\nX10000Y20000D02*\nD03*')))
+        self.assertEqual(r.status,'success'); self.assertEqual(len(r.objects),1)
+        for reset in ['D02*','D03*','D10*']:
+            r=parse_gerber(self.w(g('%ADD10C,1*%\nG01*\nD10*\nX0Y0D02*\nX1Y1D01*\n'+reset+'\nX2Y2*')))
+            self.assertEqual(r.status,'blocked'); self.assertFalse(r.objects)
+    def test_reviewed_interpretation_is_explicit(self):
+        p=self.w(g('%ADD10C,1*%\nG54D10*\nX100000Y10000D02*\nX100001Y10001D01*',fs='FSLAX23Y23'))
+        before=p.read_bytes(); self.assertEqual(parse_gerber(p).status,'blocked')
+        self.assertEqual(parse_gerber(p,format_override='FSLAX33Y33').status,'blocked')
+        r=parse_gerber(p,format_override='FSLAX33Y33',assume_linear=True)
+        self.assertEqual(r.status,'success'); self.assertEqual(len(r.interpretation_overrides),2)
+        self.assertEqual(r.declared_coordinate_format.x_integer,2); self.assertEqual(r.objects[0].start_x,'100')
+        self.assertEqual(p.read_bytes(),before)
+    def test_sr_preserves_blocks_and_resets_current_point(self):
+        body='%ADD10C,1*%\nD10*\n%SRX2Y2I10J20*%\nX0Y0D03*\n%LPC*%\nX10000Y0D03*\n%SR*%'
+        r=parse_gerber(self.w(g(body)))
+        self.assertEqual(r.status,'success')
+        self.assertEqual([(o.end_x,o.end_y,o.polarity) for o in r.objects],[('0','0','dark'),('1','0','clear'),('0','20','dark'),('1','20','clear'),('10','0','dark'),('11','0','clear'),('10','20','dark'),('11','20','clear')])
+        self.assertEqual(parse_gerber(self.w(g(body+'\nD03*'))).status,'blocked')
+    def test_malformed_apertures_and_terminators(self):
+        for value in ['C,1e9999999','C,1XX2','R,1','R,1X0','P,1X3.5','C,1X2','C,1X0','C,-1']:
+            self.assertEqual(parse_gerber(self.w(g('%ADD10'+value+'*%'))).status,'blocked',value)
+        self.assertEqual(parse_gerber(self.w('%MOMM%\n%FSLAX24Y24*%\nM02*')).status,'blocked')
+        self.assertNotEqual(parse_gerber(self.w(g('%ADD'+('1'*500)+'C,1*%'))).status,'success')
+        for body in ['%ADD10C,1X0.5*%','%ADD10R,1X1*%\nG01*\nD10*\nX0Y0D02*\nX1Y1D01*']:
+            r=parse_gerber(self.w(g(body))); self.assertEqual(r.status,'unsupported'); self.assertFalse(r.geometry_complete); self.assertFalse(r.objects)
     def test_integrity_determinism_and_identity(self):
         p=self.w(g("%ADD10C,0.1*%\nD10*\nX10000Y20000D03*\nX20000Y20000D03*")); before=p.read_bytes(); h=sha256(before).hexdigest(); a=parse_gerber(p); b=parse_gerber(p); self.assertEqual(a,b); self.assertEqual(a.source_sha256,h); self.assertEqual(p.read_bytes(),before); self.assertEqual(a.coordinate_frame,"gerber-source-native"); self.assertEqual([o.instance_id for o in a.objects],["obj-000001","obj-000002"]); payload=str(a.to_dict()).lower(); self.assertNotIn("refdes",payload); self.assertNotIn("owner",payload)
     def test_source_mutation_blocks(self):
         p=self.w(g("%ADD10C,0.1*%"),"mut.gbr")
         def mutate(): p.write_text(p.read_text()+"G04 changed*\n",encoding="ascii")
         r=parse_gerber(p,_post_parse_hook=mutate); self.assertEqual(r.status,"blocked"); self.assertIn("source Gerber changed during parsing",r.blocked_reasons)
+    def test_incremental_resource_and_grammar_limits(self):
+        body='\n'.join(f'%TA.a{i},v*%\n%ADD{i+10}C,1*%' for i in range(10))
+        self.assertEqual(parse_gerber(self.w(g(body)),GerberLimits(max_metadata_entries=12)).status,'blocked')
+        for body in ['%ADD10C,'+'1X'*100+'1*%', '%ADD10C,1*%\nD10*\n'+'X1'*100+'D03*', '%ADD10C,1*%\nD10*\nD03X0Y0*', '%ADD10C,1*%\nD10*\nY0X0D03*', 'G04 bad\0comment*', 'D10*\n%ADD10C,1*%']:
+            self.assertNotEqual(parse_gerber(self.w(g(body))).status,'success')
+        for override in [33, True, {}, '']:
+            self.assertEqual(parse_gerber(self.w(g('')),format_override=override).status,'blocked')
 
 
 if __name__ == "__main__": unittest.main()

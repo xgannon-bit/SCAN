@@ -14,6 +14,7 @@ from defusedxml import ElementTree as SafeXML
 import openpyxl
 from openpyxl.utils.cell import range_boundaries
 from .zip_budget import check_zip_directory
+from .legacy_xls import read_legacy
 
 MAX_BYTES = 8_000_000
 MAX_ROWS = 10_000
@@ -120,8 +121,10 @@ def read_table(data: bytes, kind: str, sheet_index: int = 0, delimiter: str = ',
             merged = [range_boundaries(e.attrib['ref']) for e in root.iter() if e.tag.rsplit('}', 1)[-1] == 'mergeCell']
         finally:
             workbook.close()
+    elif kind == 'xls':
+        rows, sheets, merged = read_legacy(data, sheet_index, IntakeError)
     else:
-        raise IntakeError("Only .xlsx and UTF-8 .csv placement files are supported.")
+        raise IntakeError("Only .xlsx, BIFF8 .xls and UTF-8 .csv placement files are supported.")
     width = max((len(row) for row in rows), default=0)
     for row in rows:
         row.extend([None] * (width - len(row)))
