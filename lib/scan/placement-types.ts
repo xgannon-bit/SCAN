@@ -27,6 +27,6 @@ export type PlacementResult = {
   counts: { sourceRows: number; parsed: number; skippedBlank: number; errors: number; warnings: number };
   holds: string[];
   issues: { row: number; severity: string; message: string }[];
-  placements: { placementId: string; module: string; side: string; refdes: string; mpn: string | null; xMm: string | null; yMm: string | null; rotationCcwDegrees: string | null }[];
+  placements: { placementId: string; module: string; side: string; refdes: string; mpn: string | null; footprint: string | null; sourceRow: number; sourceCoordinates: { x: string; y: string; rotation: string }; xMm: string | null; yMm: string | null; rotationCcwDegrees: string | null }[];
   machineExportAllowed: false;
 };

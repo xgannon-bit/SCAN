@@ -11,11 +11,15 @@ acceptance. See [local setup and limits](docs/ui-foundation.md). This is not an
 installed analyzer, machine-compatible job writer, or released AOI program.
 Capability descriptions below are development goals, not completed functionality.
 
-A working [placement intake](docs/placement-intake.md) is available at `/intake`.
+A connected dashboard at `/` shares a working
+[placement intake](docs/placement-intake.md) at `/intake`, source findings at
+`/findings`, and placement coordinate review at `/workspace`.
 It reads local XLSX/CSV, supports combined or separate XY columns, validates
 explicit units/rotation/identity, and downloads a normalized placement JSON.
 This is not a native machine job. Install the pinned Python worker dependencies
 in `.venv` as described in that guide before starting the app.
+File, mapping, results and exact source-row selection survive navigation within
+these screens. They reset on refresh or Clear session; no browser storage is used.
 
 The CLI also provides [snapshot preflight](docs/snapshot-preflight.md): independent
 capture-hash and full asset verification, safe XML envelope inspection and an

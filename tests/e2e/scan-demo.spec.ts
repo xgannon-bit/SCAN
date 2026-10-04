@@ -116,10 +116,12 @@ test("navigation, bottom-side identity and refresh reset remain truthful", async
   await expect(page.getByRole("article", { name: /Debug item/ })).toHaveCount(0);
 });
 
-test("demo supports keyboard entry and reduced motion", async ({ page }) => {
+test("demo supports keyboard entry and reduced motion", async ({ page: dashboard }) => {
+  await dashboard.goto("/");
+  const popup = dashboard.waitForEvent("popup");
+  await dashboard.getByRole("link", { name: "Explore synthetic demo" }).click();
+  const page = await popup;
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto("/");
-  await page.getByRole("link", { name: "Explore synthetic demo" }).click();
   await assertStage(page, "Open Job / Source Intake");
   // Step headings receive focus after navigation; Tab reaches the primary action.
   await page.keyboard.press("Tab");

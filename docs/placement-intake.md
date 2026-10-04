@@ -23,7 +23,33 @@ download. The JSON is a SCAN record, not a CAD interchange or Eagle job. Native
 job export remains disabled. Inspection representation, enabled state, teaching,
 verification and release all remain unknown. Changes to mapping or source clear
 the previous result. Preview and normalization hashes must match. Refresh clears
-the page's in-memory review; downloaded files remain on the computer.
+the shared in-memory review; downloaded files remain on the computer.
+
+## Connected SCAN session
+
+Start from the job dashboard at `/` or Source intake at `/intake`. The same
+sidebar and source status appear on every operational screen. The dashboard
+shows actual read/parse counts, mapping state, holds and the available next step.
+Source findings at `/findings` lists the parser's holds and row issues. Board
+workspace at `/workspace` lets you select any parsed source row and inspect its
+module, side, reference, MPN, footprint, original decimal coordinates, converted
+coordinates and source identity. It currently has no board graphics or overlays.
+
+Client navigation and browser Back/Forward preserve the selected file, mapping,
+preview, result and placement selection. Returning to intake may show an empty
+browser file chooser, but the selected filename remains visible above it and
+Read file still uses that file. No localStorage, sessionStorage, database or
+saved-session restore is involved; refresh/close clears the session.
+
+Source, worksheet and delimiter changes invalidate preview, result and selection.
+Mapping edits invalidate result and selection. Clearing during an import aborts
+the request and rejects late responses. Workspace selection uses source row
+within the current result, so even a blocked duplicate-identity record remains
+distinct. Partial/blocked results stay labeled and cannot be downloaded as a
+complete placement record. Native inspection coverage remains unknown.
+
+The fictional `/demo` walkthrough is separate and opens in another tab from the
+dashboard, preserving the active source session without mixing synthetic data.
 
 ## Local worker installation
 
@@ -79,6 +105,9 @@ real CLI subprocess. Node tests cover the origin gate, real worker execution,
 inert shell-looking text, cancellation and size limits. Browser tests at desktop,
 laptop and narrow sizes exercise XLSX/CSV upload, holds, conversion, download,
 row failures, refresh/reset, HTTP origin rejection and oversized uploads.
+Session tests cover navigation/history, retained mapping and exact row selection,
+dashboard downloads, every dependency invalidation, blocked duplicate identities,
+and clearing from another screen while a response is held in flight.
 
 Gerber parsing/alignment, native job schema adapters, repair proposals, asset
 binding and machine-compatible job construction remain separate unfinished work.

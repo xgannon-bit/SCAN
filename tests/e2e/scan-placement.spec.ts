@@ -29,7 +29,7 @@ test('real XLSX upload, mapping, holds, conversion, download and clear', async (
   await expect(page.getByRole('heading', { name: '3. Placement review' })).toHaveCount(0);
   await page.getByLabel('Source rotation direction').selectOption('cw');
   await page.getByRole('button', { name: 'Validate placements' }).click();
-  await expect(page.getByText('Placement parsing complete')).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Placement parsing complete' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Export Eagle/Athena job' })).toBeDisabled();
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Save placement record (JSON)' }).click();

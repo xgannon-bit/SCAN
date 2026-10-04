@@ -24,6 +24,10 @@ private/
 private-data/
 data/
 workspace/
+# Authored source route, not runtime workspace storage.
+!app/(scan)/workspace/
+app/(scan)/workspace/*
+!app/(scan)/workspace/page.tsx
 workspaces/
 snapshots/
 imports/

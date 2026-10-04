@@ -5,6 +5,11 @@ along with standalone Python ZIP inventory and explicit hashed snapshot capture.
 The browser's `/intake` page invokes the separate bounded CSV/XLSX placement
 worker through a same-origin loopback endpoint. ZIP snapshot capture remains
 CLI-only. The end-to-end native job pipeline below remains a target.
+The `(scan)` route-group layout owns one in-memory client session shared by the
+dashboard, intake, workspace and source findings. Operational navigation uses
+Next links. Source and mapping edits invalidate dependent results and selection;
+clear aborts the active request and rejects late responses. The synthetic demo
+is outside this layout and opens in a separate tab from the dashboard.
 Captured packages now have a CLI verification/XML envelope preflight reader.
 Preserved-file inventory is implemented; native dependency completeness and
 semantic interpretation remain unknown. The target is the
