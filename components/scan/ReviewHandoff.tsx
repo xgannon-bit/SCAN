@@ -6,12 +6,13 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { useScanSession } from "./ScanSession";
 import { buildSourceReport, sourceReportText } from "@/lib/scan/source-report";
 import { downloadJson } from "@/lib/scan/review-session";
+import { NativeQualification } from "./NativeQualification";
 
 export function ReviewHandoff() {
-  const { file, result, notes, archiveFile, archiveReview, setSelectedRow } = useScanSession();
+  const { file, result, notes, archiveFile, archiveReview, setSelectedRow, qualification } = useScanSession();
   const [message, setMessage] = useState("");
   const [filter, setFilter] = useState("");
-  const report = buildSourceReport({ sourceName: file?.name ?? null, result, notes, archiveName: archiveFile?.name ?? null, archive: archiveReview });
+  const report = buildSourceReport({ sourceName: file?.name ?? null, result, notes, archiveName: archiveFile?.name ?? null, archive: archiveReview, nativeQualification: qualification.report });
   const items = report.workItems.filter(item => `${item.reason} ${item.scope} ${item.sourceRow ?? ""} ${item.identity?.refdes ?? ""}`.toLowerCase().includes(filter.toLowerCase()));
   function save(format: "json" | "text") {
     try {
@@ -36,6 +37,7 @@ export function ReviewHandoff() {
       {items.slice(0, 100).map(item => <article className="scan-finding-card" key={item.id}><h3>{item.severity} · {item.scope}{item.sourceRow ? ` · Row ${item.sourceRow}` : ""}</h3>{item.identity && <p>{item.identity.module} / {item.identity.side} / {item.identity.refdes}</p>}<p>{item.reason}</p><p><strong>Next action:</strong> {item.nextAction}</p>{item.annotation && <p>User note: {item.annotation}</p>}{item.identity && item.sourceRow !== null && <Link href="/workspace" className={buttonVariants({ variant: "outline" })} onClick={() => setSelectedRow(item.sourceRow)}>Inspect source row {item.sourceRow}</Link>}</article>)}
       {!result && !archiveReview && <p>Validate a placement file or verify an existing job archive to build this review.</p>}
     </div></section>
+    <NativeQualification />
     <section className="scan-panel scan-panel-body"><h2>Native preparation still required</h2><ul className="scan-issue-list">{report.requiredNativeWork.map(value => <li key={value}>{value}</li>)}</ul><p>Package completeness, offline programming coverage, machine compatibility, optical validation and production release remain unknown.</p></section>
   </div>;
 }

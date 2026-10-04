@@ -89,6 +89,22 @@ class SnapshotCaptureTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(first_bytes, self.destination.read_bytes())
 
+    def test_explicit_recovery_capture_when_main_is_missing(self) -> None:
+        from workers.scan.snapshot_inspect import inspect_snapshot
+        for role, name in (("temp", "SyntheticPanel_Temp.xml"), ("backup", "SyntheticPanel.xml.bak")):
+            with self.subTest(role=role):
+                members = [(path, data) for path, data in self.members if path != self.selection.job_member]
+                write_zip(self.source, members, zipfile.ZIP_STORED)
+                self.expected = sha256(self.source.read_bytes()).hexdigest()
+                self.destination = self.root / f"recovery-{role}.scan-snapshot"
+                chosen = replace(self.selection, job_member=f"{self.selection.root}/{name}", job_role=role)
+                receipt = self.run_capture(selection=chosen)
+                self.assertEqual(receipt.status, "success")
+                report = inspect_snapshot(self.destination, receipt.package_sha256)
+                self.assertEqual(report['status'], 'success')
+                self.assertEqual(report['selection']['job']['role'], role)
+                self.assertFalse(report['machineExportAllowed'])
+
     def test_existing_destination_is_never_overwritten(self) -> None:
         first = self.run_capture()
         before = self.destination.read_bytes()

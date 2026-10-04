@@ -6,6 +6,10 @@ defined in product-requirements.md. No native XML, source file or machine state 
 modified. Gerber registration, native semantics, dependency binding, reviewed
 repairs, a qualified native writer and Eagle compatibility remain unfinished.
 
+The subsequent [native-output increment](native-output-qualification.md) adds
+observed native record inventory and original/returned archive comparison within
+the same workflow. It still produces no native candidate.
+
 ## Presentation path
 
 1. From Job dashboard, open Source intake and select a local XLSX/CSV. Read the

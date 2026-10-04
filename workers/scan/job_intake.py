@@ -15,6 +15,10 @@ SnapshotRole = Literal["main", "temp", "backup", "unknown"]
 
 _DRIVE_ABSOLUTE = re.compile(r"^[A-Za-z]:[/\\\\]")
 _ALLOWED_COMPRESSION = {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}
+# A small repetitive payload can have a high ratio without large expansion.
+# Grant at most one 4 KiB compressed-input budget per member; all hard expanded
+# byte/count limits and bounded CRC-checked streaming remain mandatory.
+_MIN_COMPRESSED_BUDGET = 4096
 
 
 @dataclass(frozen=True)
@@ -152,30 +156,42 @@ def _classify_path(
 
 def _discover_job_roots(
     entries: Iterable[ArchiveEntry],
+    *, include_recovery: bool = True,
 ) -> tuple[JobRootCandidate, ...]:
     files = [entry for entry in entries if not entry.is_directory]
     all_paths = {entry.path for entry in files}
     roots: list[JobRootCandidate] = []
+    seen_roots: set[str] = set()
 
     for entry in files:
         path = PurePosixPath(entry.path)
-        if path.suffix.lower() != ".xml":
-            continue
-        if (
-            path.name.lower().endswith("_temp.xml")
-            or path.name.lower() == "master.xml"
-        ):
-            continue
-        if path.stem != path.parent.name:
-            continue
+        if include_recovery:
+            # Discover a surviving snapshot without selecting it. Only exact
+            # folder-matching names establish a root; generic .bak files do not.
+            folder = path.parent.name
+            if folder.casefold() == "master" or path.name.casefold() not in {
+                f"{folder}.xml".casefold(), f"{folder}_temp.xml".casefold(),
+                f"{folder}.xml.bak".casefold(), f"{folder}.bak".casefold(),
+            }:
+                continue
+            job_name = folder
+        else:
+            # Retained only to verify the recorded inventory of older captures.
+            if path.suffix.lower() != ".xml" or path.name.lower().endswith("_temp.xml") or path.name.lower() == "master.xml" or path.stem != path.parent.name:
+                continue
+            job_name = path.stem
 
         root = str(path.parent)
-        job_name = path.stem
+        if root in seen_roots:
+            continue
+        seen_roots.add(root)
         group_root = path.parent.parent
         prefix = f"{root}/"
 
         main_candidates = sorted(
-            candidate for candidate in all_paths if candidate == entry.path
+            candidate for candidate in all_paths
+            if PurePosixPath(candidate).parent == path.parent
+            and PurePosixPath(candidate).name.casefold() == f"{job_name}.xml".casefold()
         )
         temp_candidates = sorted(
             candidate
@@ -344,7 +360,7 @@ def inventory_zip(
                     )
 
                 if not is_directory and info.file_size > 0:
-                    compressed = max(info.compress_size, 1)
+                    compressed = max(info.compress_size, _MIN_COMPRESSED_BUDGET)
                     ratio = info.file_size / compressed
                     if ratio > limits.max_compression_ratio:
                         raise IntakeBlocked(

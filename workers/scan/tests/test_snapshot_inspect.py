@@ -82,6 +82,49 @@ class SnapshotInspectTests(unittest.TestCase):
         self.assertEqual(original, self.snapshot.read_bytes())
         self.assertEqual({p.name for p in self.root.iterdir()}, {'authored.zip', 'authored.scan-snapshot'})
 
+    def test_record_failure_and_duplicate_scalars_enter_handoff_holds(self):
+        for content, expected in ((b'<PartData><ID><Nested/></ID></PartData>', 'NATIVE_RECORDS_BLOCKED'), (b'<PartData><ID>A</ID><ID>B</ID></PartData>', 'NATIVE_SCALAR_AMBIGUITY')):
+            with self.subTest(expected=expected):
+                self.members[self.selection.job_member] = b'<JobContainer><JobXmlVersion>10.2</JobXmlVersion><PartDataList>' + content + b'</PartDataList></JobContainer>'
+                self.capture()
+                report = self.inspect()
+                self.assertEqual(report['status'], 'success')
+                self.assertTrue(report['integrity']['allArchivedFilesVerified'])
+                self.assertTrue(any(hold['code'] == expected and hold['scope'] == 'job' for hold in report['holds']))
+
+    def test_parse_error_reports_category_without_source_text(self):
+        self.members[self.selection.job_member] = b'<Job><Name>DO_NOT_LOG & DO_NOT_LOG</Name></Job>'
+        self.capture()
+        report = self.inspect()
+        envelope = report['xmlEnvelopes']['job']
+        self.assertEqual(envelope['status'], 'blocked')
+        self.assertIn('invalid token', envelope['reason'])
+        self.assertNotIn('DO_NOT_LOG', envelope['reason'])
+        self.assertTrue(any(hold['code'] == 'XML_REJECTED' and hold['scope'] == 'job' for hold in report['holds']))
+
+    def test_legacy_root_inventory_is_verified_from_bytes_not_blindly_trusted(self):
+        from dataclasses import asdict
+        from workers.scan.job_intake import _discover_job_roots
+        self.members['Fictional/Recovery/Recovery_Temp.xml'] = b'<Authored />'
+        self.capture()
+        old_roots = [asdict(root) for root in _discover_job_roots(inventory_zip(self.archive).entries, include_recovery=False)]
+        self.edit_manifest(lambda manifest: manifest.update(jobRoots=old_roots))
+        self.assertEqual(self.inspect()['status'], 'success')
+        self.edit_manifest(lambda manifest: manifest['jobRoots'][0].update(job_name='invented-forgery'))
+        self.assertEqual(self.inspect()['status'], 'blocked')
+
+    def test_small_high_ratio_member_survives_capture_and_full_asset_verification(self):
+        member = 'Fictional/Board/authored-repetitive.bin'
+        self.members[member] = b'A' * 900_000
+        with zipfile.ZipFile(self.archive, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+            for name, content in self.members.items(): archive.writestr(name, content)
+        self.snapshot.unlink()
+        receipt = capture_snapshot(self.archive, self.snapshot, sha256(self.archive.read_bytes()).hexdigest(), self.selection)
+        self.assertEqual(receipt.status, 'success')
+        report = self.inspect(expected=receipt.package_sha256)
+        actual = next(file for file in report['preservedFiles'] if file['path'] == member)
+        self.assertEqual(actual['sha256'], sha256(self.members[member]).hexdigest())
+
     def test_inspection_works_without_original_source_and_never_follows_native_paths(self):
         self.members['Fictional/Board/Board.xml'] = b'<FictionalJob><Asset>file:///missing/private.jpg</Asset></FictionalJob>'
         self.capture(); self.archive.unlink()

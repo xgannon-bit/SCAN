@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { before, after } from 'node:test';
 import { createHash } from 'node:crypto';
-import { readdir } from 'node:fs/promises';
+import { readdir, mkdtemp, rm } from 'node:fs/promises';
+import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { archiveWorker } from '../lib/scan/archive-worker.ts';
 import { POST } from '../app/api/archive/route.ts';
@@ -12,6 +13,17 @@ const signal = () => new AbortController().signal;
 const selection = syntheticSelection;
 const control = { action: 'preflight', expectedArchiveSha256: hash(bytes), selection };
 const dirs = async () => (await readdir(tmpdir())).filter(value => value.startsWith('scan-archive-')).sort();
+const originalTemp = { TEMP: process.env.TEMP, TMP: process.env.TMP, TMPDIR: process.env.TMPDIR };
+const originalTempRoot = path.resolve(tmpdir());
+let testTemporary;
+before(async () => {
+  testTemporary = await mkdtemp(path.join(originalTempRoot, 'scan-worker-tests-'));
+  for (const key of Object.keys(originalTemp)) process.env[key] = testTemporary;
+});
+after(async () => {
+  for (const [key, value] of Object.entries(originalTemp)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+  if (testTemporary && path.dirname(path.resolve(testTemporary)) === originalTempRoot && path.basename(testTemporary).startsWith('scan-worker-tests-')) await rm(testTemporary, { recursive: true, force: true });
+});
 
 test('real archive inventory, capture receipt, XML preflight and streamed download agree', async () => {
   const before = await dirs();

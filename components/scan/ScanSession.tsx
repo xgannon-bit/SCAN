@@ -1,14 +1,23 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { PlacementConfig, PlacementPreview, PlacementResult } from "@/lib/scan/placement-types";
 import { decodeReview, downloadJson, encodeReview, type ReviewNotes } from "@/lib/scan/review-session";
 import { useArchiveSession } from "./ArchiveSession";
+import { buildNativeQualification } from "@/lib/scan/native-qualification";
 
 const initial: PlacementConfig = { startRow: 1, columns: { refdes: 1, mpn: 2, xy: 4, side: 5, rotation: 6, footprint: 7 }, module: "", side: "", units: "unknown", rotationDirection: "unknown", decimalSeparator: ".", pairSeparator: "," };
 
 function usePlacementSession() {
   const archive = useArchiveSession();
+  const returnedArchive = useArchiveSession();
+  const [eagleVersion, setEagleVersion] = useState("");
+  const qualification = useMemo(() => {
+    if (!archive.archiveReview || !returnedArchive.archiveReview) return { report: null, error: "" };
+    try { return { report: buildNativeQualification(archive.archiveReview, returnedArchive.archiveReview, eagleVersion), error: "" }; }
+    catch (error) { return { report: null, error: error instanceof Error ? error.message : "Qualification comparison is unavailable." }; }
+  }, [archive.archiveReview, returnedArchive.archiveReview, eagleVersion]);
+  function changeBaseline(file: File | null) { archive.changeArchive(file); returnedArchive.changeArchive(null); }
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<PlacementPreview | null>(null);
   const [result, setResult] = useState<PlacementResult | null>(null);
@@ -39,7 +48,7 @@ function usePlacementSession() {
   }
   function changeSheet(value: number) { invalidate(); setNotes({}); setSheet(value); setPreview(null); }
   function changeDelimiter(value: string) { invalidate(); setNotes({}); setDelimiter(value); setPreview(null); }
-  function reset() { changeFile(null); archive.changeArchive(null); }
+  function reset() { changeFile(null); changeBaseline(null); setEagleVersion(""); }
   function cancel() {
     revision.current += 1;
     controller.current?.abort(); controller.current = null;
@@ -113,7 +122,7 @@ function usePlacementSession() {
       // mapping cannot currently be parsed. Derived results are never restored.
       setFile(source); setConfig(record.config); setSheet(record.sheetIndex); setDelimiter(record.delimiter);
       setPreview(null); setResult(null); setSelectedRow(null); setNotes(record.notes);
-      archive.changeArchive(null); sourceRestored = true;
+      changeBaseline(null); sourceRestored = true;
       async function parse(action: "inspect" | "normalize") {
         const form = new FormData();
         form.set("file", source); form.set("action", action); form.set("sheetIndex", String(record.sheetIndex));
@@ -136,7 +145,7 @@ function usePlacementSession() {
   }
 
   const stage = busy ? "Processing source" : error ? "Import needs attention" : result ? result.status === "success" ? "Placement parsing complete" : "Placement review needs attention" : preview ? "Mapping needs validation" : file ? "Ready to read" : "No source loaded";
-  return { file, preview, result, config, sheet, delimiter, busy, error, selectedRow, notes, notice, stage, edit, changeFile, changeSheet, changeDelimiter, reset, cancel, run, download, setSelectedRow, editNote, saveReview, openReview, ...archive };
+  return { file, preview, result, config, sheet, delimiter, busy, error, selectedRow, notes, notice, stage, edit, changeFile, changeSheet, changeDelimiter, reset, cancel, run, download, setSelectedRow, editNote, saveReview, openReview, ...archive, changeArchive: changeBaseline, returnedArchive, eagleVersion, setEagleVersion, qualification };
 }
 
 const ScanSessionContext = createContext<ReturnType<typeof usePlacementSession> | null>(null);

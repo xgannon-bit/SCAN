@@ -32,6 +32,12 @@ In Source intake, select an existing job ZIP, inventory it, explicitly select
 the job/master snapshots and capture/verify them. Save the source snapshot and
 preflight report separately from the placement review.
 
+The [native output qualification workflow](docs/native-output-qualification.md)
+now reads observed JobContainer 10.2 records as literal source fields and compares
+every file in an original archive against a separately verified returned archive.
+Review handoff exports the hash-bound comparison. This is preservation evidence;
+native semantics, writer qualification and Eagle compatibility remain unfinished.
+
 A [synthetic walkthrough](docs/synthetic-demo.md) is available at `/demo`.
 It demonstrates exact placement selection and simulated review decisions with
 fictional data; it does not analyze files or produce machine jobs.

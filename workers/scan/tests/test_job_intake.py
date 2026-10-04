@@ -97,6 +97,24 @@ class JobIntakeTests(unittest.TestCase):
         self.assertEqual(result.status, "blocked")
         self.assertIn("path traversal", result.reasons[0])
 
+    def test_surviving_snapshots_discover_root_without_selecting_main(self) -> None:
+        for name, role in (("Board_Temp.xml", "temp"), ("Board.xml.bak", "backup"), ("Board.bak", "backup"), ("BOARD.xml", "main")):
+            with self.subTest(name=name):
+                source = self.root / "recovery.zip"
+                write_zip(source, [(f"Group/Board/{name}", b"<fictional />"), ("Group/Master/Master.xml", b"<fictional />")])
+                result = inventory_zip(source)
+                self.assertEqual(result.status, "success")
+                self.assertEqual(len(result.job_roots), 1)
+                chosen = result.job_roots[0]
+                self.assertEqual(getattr(chosen, f"{role}_candidates"), (f"Group/Board/{name}",))
+                if role != "main":
+                    self.assertEqual(chosen.main_candidates, ())
+
+    def test_recovery_discovery_does_not_duplicate_roots_or_infer_from_unrelated_backup(self) -> None:
+        source = self.root / "recovery.zip"
+        write_zip(source, synthetic_job_members() + [("Other/OtherWrong.xml.bak", b"<fictional />")])
+        self.assertEqual(len(inventory_zip(source).job_roots), 1)
+
     def test_absolute_path_blocks(self) -> None:
         path = self.root / "absolute.zip"
         write_zip(path, [("/absolute.txt", b"x")])
@@ -210,6 +228,28 @@ class JobIntakeTests(unittest.TestCase):
 
         self.assertEqual(result.status, "blocked")
         self.assertIn("compression-ratio", result.reasons[0])
+
+    def test_small_repetitive_asset_is_bounded_by_absolute_size_not_tiny_compressed_size(self) -> None:
+        source = self.root / "small-asset.zip"
+        write_zip(source, synthetic_job_members() + [("SyntheticGroup/SyntheticPanel/authored.bin", b"A" * 900_000)])
+        self.assertEqual(inventory_zip(source).status, "success")
+        constrained = inventory_zip(source, IntakeLimits(max_entry_uncompressed=800_000))
+        self.assertEqual(constrained.status, "blocked")
+        self.assertIn("uncompressed size", constrained.reasons[0])
+        write_zip(source, synthetic_job_members() + [("SyntheticGroup/SyntheticPanel/authored.bin", b"A" * 1_100_000)])
+        too_large = inventory_zip(source)
+        self.assertEqual(too_large.status, "blocked")
+        self.assertIn("compression-ratio", too_large.reasons[0])
+
+    def test_small_member_expansion_boundary_and_aggregate_budget(self) -> None:
+        source = self.root / "boundary.zip"
+        write_zip(source, synthetic_job_members() + [("synthetic-small.bin", b"A" * 1_024_000)])
+        self.assertEqual(inventory_zip(source).status, "success")
+        write_zip(source, synthetic_job_members() + [("synthetic-large.bin", b"A" * 1_024_001)])
+        self.assertIn("compression-ratio", inventory_zip(source).reasons[0])
+        write_zip(source, synthetic_job_members() + [("small-one.bin", b"A" * 500_000), ("small-two.bin", b"A" * 500_000)])
+        result = inventory_zip(source, IntakeLimits(max_total_uncompressed=900_000))
+        self.assertIn("total uncompressed", result.reasons[0])
 
     def test_multiple_roots_block_without_selecting_one(self) -> None:
         path = self.root / "multiple.zip"

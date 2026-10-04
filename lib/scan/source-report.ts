@@ -1,6 +1,7 @@
 import type { PlacementResult } from "./placement-types";
 import type { ArchiveReview } from "./archive-types";
 import type { ReviewNotes } from "./review-session";
+import { nativeQualificationText, type NativeQualification } from "./native-qualification";
 
 export function placementNextAction(code: string): string {
   if (code === "MPN_MISSING") return "Confirm this component's MPN against the approved BOM or engineering evidence, update the source, and validate again.";
@@ -8,7 +9,7 @@ export function placementNextAction(code: string): string {
   return "Check this row and its column mapping against the original spreadsheet. Correct the source or mapping and validate again.";
 }
 
-export function buildSourceReport(input: { sourceName: string | null; result: PlacementResult | null; notes: ReviewNotes; archiveName: string | null; archive: ArchiveReview | null }) {
+export function buildSourceReport(input: { sourceName: string | null; result: PlacementResult | null; notes: ReviewNotes; archiveName: string | null; archive: ArchiveReview | null; nativeQualification?: NativeQualification | null }) {
   const { result, notes, archive } = input;
   const placementsByRow = new Map(result?.placements.map(value => [value.sourceRow, value]));
   const workItems = [
@@ -26,7 +27,7 @@ export function buildSourceReport(input: { sourceName: string | null; result: Pl
     archiveSource: archive ? { name: input.archiveName, sha256: archive.preflight.source.sha256, selection: archive.preflight.selection, capture: archive.capture } : null,
     sourceRelationship: "Placement-to-archive revision, population and coordinate registration have not been verified.",
     placementResult: result, nativePreflight: archive?.preflight ?? null,
-    reviewNotes: notes, workItems,
+    reviewNotes: notes, workItems, nativeQualification: input.nativeQualification ?? null,
     placements: result?.placements.map(placement => ({ sourceSha256: result.sourceSha256, sheetIndex: result.sheetIndex, sourceRow: placement.sourceRow, placementId: placement.placementId, module: placement.module, side: placement.side, refdes: placement.refdes, mpn: placement.mpn, nativePreparation: "not-assessed", reviewNote: notes[`row:${placement.sourceRow}`] ?? "" })) ?? [],
     requiredNativeWork: ["Verify placement/Gerber revision, side, module scope and coordinate registration.", "Read native semantics and resolve model, image and inspection dependencies through a supported version adapter.", "Review exact proposed corrections and qualify the copy-only native writer.", "Load, save and reopen the exact candidate in authorized Eagle software; complete image-dependent teaching and validation."],
     readiness: { packageComplete: null, offlinePreparationCoverage: null, machineCompatibility: null, opticalTeachingValidation: null, productionRelease: null },
@@ -50,5 +51,6 @@ export function sourceReportText(report: ReturnType<typeof buildSourceReport>): 
   lines.push("EVERY PARSED SOURCE PLACEMENT — NATIVE PREPARATION NOT ASSESSED");
   for (const placement of report.placements) lines.push(`Row ${placement.sourceRow} | ${placement.module} | ${placement.side} | ${placement.refdes} | MPN: ${placement.mpn ?? "Unknown"}${placement.reviewNote ? ` | Note: ${placement.reviewNote}` : ""}`);
   lines.push("", "REMAINING NATIVE WORK", ...report.requiredNativeWork.map((value, index) => `${index + 1}. ${value}`), "", "Notes do not clear parser holds or authorize native edits. Optical teaching, engineering approval and production release remain separate.");
+  if (report.nativeQualification) lines.push("", nativeQualificationText(report.nativeQualification));
   return lines.join("\n") + "\n";
 }

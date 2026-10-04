@@ -13,7 +13,9 @@ export type SnapshotPreflight = {
   source: { sha256: string; size: number; storedPath: string };
   selection: { root: string; job: { member: string; role: SnapshotRole; sha256: string; size: number }; master: { member: string; role: SnapshotRole; sha256: string; size: number } | null };
   integrity: { status: "verified-against-capture-hash"; allArchivedFilesVerified: true };
-  preservedFiles: { path: string; size: number; sha256: string; kind: string; inventoryRole: string }[];
+  preservedFiles: { originalName: string; path: string; size: number; sha256: string; kind: string; inventoryRole: string }[];
+  preservedDirectories: string[];
+  nativeRecords: Record<string, { status: "recorded" | "blocked" | "unsupported"; reason?: string; readerProfile?: string; schemaVersionClaim?: string; records: { kind: string; sourcePath: string; rawFields: Record<string, string[]> }[]; duplicateScalarFields?: { sourcePath: string; field: string }[]; countsByRecordKind?: Record<string, number> }>;
   xmlEnvelopes: Record<string, { status: "well-formed" | "blocked"; code?: string; reason?: string; rootName?: string; elementCount?: number; versionClaims?: unknown[] }>;
   readiness: { packageComplete: null; offlinePreparationCoverage: null; machineCompatibility: null; opticalTeachingValidation: null; productionRelease: null };
   coverage: { represented: null; enabled: null; taught: null; verified: null; released: null };

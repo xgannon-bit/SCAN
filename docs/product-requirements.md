@@ -116,6 +116,13 @@ Check available authorized inputs before asking for them again.
 
 ## Current implementation and retained queue
 
+Latest local increment: source intake/capture/preflight are integrated into the
+dashboard; saved placement reviews reparse on reopen. The observed JobContainer
+10.2 read-only profile inventories literal native records, and handoff compares
+all original/returned archive files. See [qualification](native-output-qualification.md).
+No native schema/writer or Eagle application version is qualified. The historical
+checkpoint below remains for A# task provenance.
+
 | Capability | Actual state at the start of A05 |
 | --- | --- |
 | A03 source intake / A04 snapshots | ZIP inventory and explicit hashed capture, CLI-only; A04 committed `caed93a` with 38 tests at that checkpoint |

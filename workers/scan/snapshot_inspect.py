@@ -12,12 +12,15 @@ import re
 import stat
 import tempfile
 import zipfile
+from xml.etree.ElementTree import ParseError
+from xml.parsers.expat import ErrorString
 
 from defusedxml.ElementTree import DefusedXMLParser
 
-from .job_intake import _normalize_member_name, inventory_zip
+from .job_intake import _normalize_member_name, _discover_job_roots, inventory_zip
 from .snapshot_capture import CaptureBlocked, CaptureLimits, SnapshotSelection, _fingerprint, _fresh_hash, _stream, _validate_selection
 from .zip_budget import ZipBudgetExceeded, check_zip_directory
+from .native_records import read_native_records
 
 
 @dataclass(frozen=True)
@@ -172,6 +175,11 @@ def xml_envelope(stream, size, limits):
         return parser.close()
     except CaptureBlocked as error:
         return {'status': 'blocked', 'code': error.code, 'reason': str(error)}
+    except ParseError as error:
+        # Expat descriptions are fixed parser categories, unlike exception text
+        # that may reveal source-derived names or values.
+        category = ErrorString(error.code) or 'malformed XML'
+        return {'status': 'blocked', 'code': 'XML_REJECTED', 'reason': f'Selected XML failed parsing: {category}. Original bytes remain preserved; review another explicit snapshot or a separate supported repair.'}
     except Exception:
         return {'status': 'blocked', 'code': 'XML_REJECTED', 'reason': 'Selected XML is malformed or contains a forbidden DTD/entity. No contents were logged.'}
 
@@ -236,13 +244,20 @@ def inspect_snapshot(source_path, expected_package_sha256, limits=None):
                         total_read += size
                         actual_members.append({'originalName': info.filename, 'path': name, 'sha256': member_hash, 'size': size, 'kind': entry.kind, 'inventoryRole': entry.snapshot_role})
                 actual_members.sort(key=lambda item: item['path'])
-                if not _same(manifest['members'], actual_members) or not _same(manifest['jobRoots'], [asdict(r) for r in inventory.job_roots]) or not _same(manifest['holds'], list(holds)):
+                roots_match = _same(manifest['jobRoots'], [asdict(r) for r in inventory.job_roots])
+                if not roots_match:
+                    # Older captures did not discover orphan temp/backup roots.
+                    # Accept only that exact historical derivation of the same
+                    # verified bytes; selected members still pass current checks.
+                    roots_match = _same(manifest['jobRoots'], [asdict(r) for r in _discover_job_roots(inventory.entries, include_recovery=False)])
+                if not _same(manifest['members'], actual_members) or not roots_match or not _same(manifest['holds'], list(holds)):
                     _fail('INVENTORY_MISMATCH', 'Recorded inventory, roots or selection holds differ from verified source bytes.')
                 identity = {'archiveSha256': archive_hash, 'selection': asdict(selection)}
                 snapshot_id = sha256(json.dumps(identity, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
                 if snapshot_id != manifest['snapshotId']: _fail('IDENTITY_MISMATCH', 'Snapshot identity does not match its archive and selection.')
                 member_map = {m['path']: m for m in actual_members}
                 documents = {}
+                native_records = {}
                 for role in ('job', 'master'):
                     selected = manifest['selection'][role]
                     if selected is None: continue
@@ -253,6 +268,9 @@ def inspect_snapshot(source_path, expected_package_sha256, limits=None):
                         _fail('SELECTED_MISMATCH', 'Selected payload differs from its exact archived member.')
                     with outer.open(selected['storedPath']) as handle:
                         documents[role] = xml_envelope(handle, selected_size, limits)
+                    if documents[role]['status'] == 'well-formed':
+                        with outer.open(selected['storedPath']) as handle:
+                            native_records[role] = read_native_records(handle, selected_size)
                 fresh, fresh_stat = _fresh_hash(source, limits.max_package_bytes)
                 if fresh != expected or _fingerprint(fresh_stat) != _fingerprint(source_stat):
                     _fail('SOURCE_CHANGED', 'Source package changed during inspection.')
@@ -264,10 +282,16 @@ def inspect_snapshot(source_path, expected_package_sha256, limits=None):
                 for role, document in documents.items():
                     if document['status'] == 'blocked':
                         report_holds.append({'code': document['code'], 'scope': role, 'reason': document['reason'], 'nextAction': 'Resolve the XML preflight failure before semantic reading.'})
+                for role, records in native_records.items():
+                    if records['status'] != 'recorded':
+                        report_holds.append({'code': 'NATIVE_RECORDS_' + records['status'].upper(), 'scope': role, 'reason': records['reason'], 'nextAction': 'Resolve the bounded native reader prerequisite before semantic interpretation; verified source bytes remain preserved.'})
+                    elif records['duplicateScalarFields']:
+                        report_holds.append({'code': 'NATIVE_SCALAR_AMBIGUITY', 'scope': role, 'reason': 'Repeated scalar fields occur in native records. Every value is retained; none was silently selected.', 'nextAction': 'Review the exact source paths and duplicate fields through the supported native-format workflow.'})
                 return {'status': 'success', 'code': 'PREFLIGHT_RECORDED', 'artifactType': 'scan.snapshot-preflight', 'schemaVersion': '1',
-                        'readerVersion': 'a05-envelope-1', 'packageSha256': expected, 'snapshotId': snapshot_id, 'source': manifest['source'],
+                        'readerVersion': 'a05-records-2', 'packageSha256': expected, 'snapshotId': snapshot_id, 'source': manifest['source'],
                         'selection': manifest['selection'], 'integrity': {'status': 'verified-against-capture-hash', 'allArchivedFilesVerified': True},
-                        'preservedFiles': actual_members, 'xmlEnvelopes': documents, 'recordedCaptureLimits': manifest['limits'], 'readerLimits': asdict(limits),
+                        'preservedFiles': actual_members, 'preservedDirectories': sorted(e.path for e in inventory.entries if e.is_directory),
+                        'xmlEnvelopes': documents, 'nativeRecords': native_records, 'recordedCaptureLimits': manifest['limits'], 'readerLimits': asdict(limits),
                         'readiness': {'packageComplete': None, 'offlinePreparationCoverage': None, 'machineCompatibility': None, 'opticalTeachingValidation': None, 'productionRelease': None},
                         'coverage': {'represented': None, 'enabled': None, 'taught': None, 'verified': None, 'released': None},
                         'dependencyGraph': None, 'nativeSchemaSupported': False, 'machineExportAllowed': False, 'candidateId': None,
