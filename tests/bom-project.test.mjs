@@ -51,3 +51,18 @@ test('BOM-only project plus comparison and layout preserves exact bytes; tamperi
     await assert.rejects(decodeProject(new File([JSON.stringify(changed)], 'tampered.json')), /hash/);
   }
 });
+
+test('preparation queue preserves native-only parts and separates population from repeated module scope', () => {
+  const part = (ref, id, module) => ({ kind: 'part-record', sourcePath: `Job/Part[${id}]`, rawFields: { RefID: [ref], ID: [id], ParentId: [module], MasterKey: ['shared-authored-master'], ENABLE: ['True'] } });
+  const archive = { preflight: { nativeRecords: { job: { records: [part('R1', '1', 'A'), part('R1', '2', 'A'), part('R2', '3', 'A'), part('R2', '4', 'B'), part('X9', '5', 'A')] } }, selection: { job: { sha256: 'a'.repeat(64) } } } };
+  const scope = { module: '', side: '', boardInstance: '' };
+  const bom = { sourceSha256: 'b'.repeat(64), config: { scope }, references: ['R1', 'R2', 'D1', 'C1'].map(rawRefdes => ({ sourceRow: 2, rawRefdes, normalizedRefdes: rawRefdes, scope, mpn: null, rawMpn: null, populationEvidence: rawRefdes === 'D1' ? 'engineering-dnp' : 'engineering-listed' })) };
+  const result = buildSourceCrosswalk(bom, null, archive);
+  assert.equal(result.rows.find(row => row.reference === 'R1').preparation, 'review-multiple-native-placements');
+  assert.equal(result.rows.find(row => row.reference === 'R2').preparation, 'existing-structure-preserved');
+  assert.equal(result.rows.find(row => row.reference === 'D1').preparation, 'population-decision-needed');
+  assert.equal(result.rows.find(row => row.reference === 'C1').preparation, 'native-preparation-needed');
+  assert.equal(result.rows.find(row => row.reference === 'X9').nativeInstances.length, 1);
+  assert.ok(result.rows.every(row => row.teaching === 'unverified'));
+  assert.equal(Object.values(result.preparationCounts).reduce((a,b) => a+b, 0), 5);
+});

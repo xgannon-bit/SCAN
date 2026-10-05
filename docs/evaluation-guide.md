@@ -41,3 +41,7 @@ The same checklist is included in every engineering candidate package, so it can
 - A translation hypothesis uses separate fit and held-out references. Residuals can be legitimate origin differences. Do not move CAD to force agreement or infer pad ownership from nearest distance.
 
 Downloads are requested through the browser. Confirm the file exists in Downloads before closing SCAN. A candidate history entry proves generation and hashes, not successful browser delivery.
+
+## Component preparation queue
+
+The source reconciliation panel classifies every represented reference into existing native structure to preserve, multiple native placements in the same module to review, missing native preparation, a pending engineering-DNP population decision, or pre-arrival work without a native job. Each item retains exact native IDs, modules, Master keys and enable literals. Filter by preparation task or reference to work a group together. These categories do not assert that teaching is complete or that a missing placement should be populated. Native-only references remain visible.

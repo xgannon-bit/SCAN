@@ -27,6 +27,15 @@ export function buildSourceCrosswalk(bom: BomResult | null, placement: Placement
   }
   const keys = Array.from(byReference.keys()).sort();
   const sourceNames = Array.from(new Set(entries.map(item => item.source)));
+  const nativeByRef = new Map<string, { path: string; id: string; module: string; master: string; enableLiteral: string }[]>();
+  for (const part of archive?.preflight.nativeRecords.job?.records ?? []) {
+    if (part.kind !== "part-record" || part.rawFields.RefID?.length !== 1) continue;
+    const one = (field: string) => part.rawFields[field]?.length === 1 ? part.rawFields[field][0] : "";
+    const key = normalize(one("RefID")), group = nativeByRef.get(key) ?? [];
+    group.push({ path: part.sourcePath, id: one("ID"), module: one("ParentId"), master: one("MasterKey"), enableLiteral: one("ENABLE") }); nativeByRef.set(key, group);
+  }
+  for (const key of nativeByRef.keys()) if (!byReference.has(key)) { keys.push(key); byReference.set(key, []); }
+  keys.sort();
   const rows = keys.map(key => {
     const items = byReference.get(key)!, issues: string[] = [];
     const bomItems = items.filter(item => item.source === "BOM"), active = items.filter(item => item.source === "Active placement");
@@ -42,7 +51,17 @@ export function buildSourceCrosswalk(bom: BomResult | null, placement: Placement
     if (bomItems.some(item => !item.module || !item.side) || bom && !bom.config.scope.boardInstance) issues.push("BOM applicability is reference-only; confirm module, side and board instance before using quantities.");
     const positionSources = items.filter(item => item.source !== "Native CAD" && item.x !== null);
     if (new Set(positionSources.map(item => `${item.x},${item.y}`)).size > 1) issues.push("Placement sources have different coordinates; units alone do not establish registration.");
-    return { reference: key, sources: items, engineeringDnp, issues, nextAction: issues[0] ?? "Source references correspond; verify geometry and inspection work separately.", nativePreparation: "unassessed", teaching: "unverified", workOrderPopulation: "unapproved" };
+    const nativeInstances = nativeByRef.get(key) ?? [];
+    const moduleCounts = new Map<string, number>();
+    for (const item of nativeInstances) if (item.module) moduleCounts.set(item.module, (moduleCounts.get(item.module) ?? 0) + 1);
+    const repeatedNativeScope = [...moduleCounts.values()].some(count => count > 1);
+    const preparation = !archive ? "native-job-not-selected" : engineeringDnp ? "population-decision-needed" : repeatedNativeScope ? "review-multiple-native-placements" : !nativeInstances.length ? "native-preparation-needed" : "existing-structure-preserved";
+    const remainingAction = preparation === "population-decision-needed" ? "Confirm work-order/stage population before excluding or preparing this reference; engineering DNP is not approval."
+      : preparation === "review-multiple-native-placements" ? "Compare the full same-module placements and their shared teaching before choosing any redundant record."
+      : preparation === "native-preparation-needed" ? "Source reference is present but no matching native placement is represented. Establish population, model and owned inspection geometry before creating one."
+      : preparation === "existing-structure-preserved" ? "Preserve existing placement and Master teaching; review binding, geometry and exact remaining window/algorithm work before machine verification."
+      : "Retain pre-arrival preparation and attach a scanned native copy when available.";
+    return { reference: key, sources: items, engineeringDnp, issues, nextAction: issues[0] ?? "Source references correspond; verify geometry and inspection work separately.", nativePreparation: "unassessed", preparation, nativeInstances, remainingAction, teaching: "unverified", workOrderPopulation: "unapproved" };
   });
   const coordinateSources = sourceNames.filter(name => name !== "Native CAD" && name !== "BOM");
   const registrationDiagnostics = coordinateSources.flatMap((from, i) => coordinateSources.slice(i + 1).map(to => {
@@ -52,6 +71,7 @@ export function buildSourceCrosswalk(bom: BomResult | null, placement: Placement
   const sharedCauses = new Map<string, string[]>();
   for (const row of rows) for (const issue of row.issues) { const affected = sharedCauses.get(issue) ?? []; affected.push(row.reference); sharedCauses.set(issue, affected); }
   return { artifactType: "scan.source-crosswalk", schemaVersion: "1", sourceNames, rows, registrationDiagnostics,
+    preparationCounts: Object.fromEntries(["native-job-not-selected", "population-decision-needed", "review-multiple-native-placements", "native-preparation-needed", "existing-structure-preserved"].map(state => [state, rows.filter(row => row.preparation === state).length])),
     sharedIssues: [...sharedCauses].map(([reason, references]) => ({ reason, references, affectedCount: references.length })),
     sources: sourceNames.map(name => ({ name, missingReferences: keys.filter(key => !bySource.get(name)!.refs.has(key)), count: bySource.get(name)!.refs.size, hashes: [...bySource.get(name)!.hashes] })),
     coordinateRegistration: "not-established-by-reference-matching", machineExportAllowed: false,
