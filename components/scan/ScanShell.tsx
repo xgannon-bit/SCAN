@@ -21,7 +21,7 @@ const screens = [
 
 export function ScanShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { file, preview, result, stage, archiveFile, archiveReview, archiveBusy, gerber } = useScanSession();
+  const { file, preview, result, stage, archiveFile, archiveReview, archiveBusy, gerber, layout, bom } = useScanSession();
   const heading = screens.find(screen => screen.href === pathname)?.label ?? "SCAN";
   return <div className="scan-app">
     <a className="scan-skip-link" href="#scan-content">Skip to workspace</a>
@@ -48,7 +48,7 @@ export function ScanShell({ children }: { children: React.ReactNode }) {
           <Link className={buttonVariants()} href="/intake"><FileSpreadsheet aria-hidden="true" />{file ? "Continue intake" : "Import placement file"}</Link>
         </div>
       </header>
-      <div className="scan-session-strip" aria-label="Current source"><strong>{file?.name ?? archiveFile?.name ?? "No source loaded"}</strong><span>{file ? stage : archiveBusy ? "Processing archive" : archiveReview ? "Archive integrity verified; native preparation held" : archiveFile ? "Archive selected" : stage}</span></div>
+      <div className="scan-session-strip" aria-label="Current source"><strong>{file?.name ?? archiveFile?.name ?? layout.file?.name ?? bom.file?.name ?? gerber.file?.name ?? "No source loaded"}</strong><span>{file ? stage : archiveBusy ? "Processing archive" : archiveReview ? "Archive integrity verified; native preparation held" : archiveFile ? "Archive selected" : layout.busy || bom.busy ? "Reading preparation sources" : layout.result || bom.result ? "Source preparation available; native job not attached" : layout.file || bom.file || gerber.file ? "Preparation source selected" : stage}</span></div>
       <div className="scan-safety-banner" role="status" aria-label="Native capability status"><strong>Offline evaluation — machine qualification pending.</strong><span>{gerber.alignment?.status === "success" ? "CAD/Gerber control checks passed. Native job construction and Eagle/Athena compatibility remain required." : "Review CAD/Gerber alignment, native job construction and Eagle/Athena compatibility before machine use."}</span></div>
       <nav className="scan-workflow" aria-label="Import Review Export">
         <Link href="/intake" className={`scan-workflow-step ${pathname === "/intake" ? "current" : ""}`}><span>01</span><strong>Import</strong><small>Job copy and useful source files</small></Link>

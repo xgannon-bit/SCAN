@@ -129,7 +129,7 @@ class AccelSourceTests(unittest.TestCase):
                 result = read_accel(data)
                 self.assertEqual(data, before)
                 self.assertEqual(result['sourceSha256'], sha256(before).hexdigest())
-                self.assertEqual(result['adapterVersion'], 'accel-source-3')
+                self.assertEqual(result['adapterVersion'], 'accel-source-4')
                 self.assertEqual(result['status'], 'partial')
                 item = result['placements'][0]
                 self.assertEqual(item['refdes'], ref)

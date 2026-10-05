@@ -19,6 +19,13 @@ See [the evaluation guide](evaluation-guide.md). Repair Review now connects sele
 
 ## Repair three different things separately
 
+Source-family review now includes explicit numbered-layer outlines and drill
+evidence. The first two-pad rectangular family is classified from original
+geometry; real insertion stays held. A disabled multi-record writer and atomic
+archive transport pass synthetic structural tests but do not yet support the
+complete actual native template schema. See [disabled draft preparation](disabled-draft-preparation.md)
+for the exact contract and remaining engineering.
+
 1. Source-format defects: combined X/Y columns, numeric text, explicit unit conversion, coordinate-format declarations and revision inconsistencies.
 2. Cross-file alignment: side, origin, units, angle convention, mirror and module transforms, with independent correspondences and residual checks.
 3. Job model defects: duplicate enabled placements, displaced ROIs, dangling relationships, incorrect component-pad associations and inconsistent template reference origins.

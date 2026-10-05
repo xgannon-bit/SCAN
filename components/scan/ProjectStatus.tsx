@@ -7,10 +7,11 @@ export function ProjectStatus({ exporting = false }: { exporting?: boolean }) {
   const decisions = request?.acceptances ?? [];
   const accepted = decisions.filter(item => item.decision === "accepted").length;
   const fresh = request && request.source.archiveSha256 === s.archiveReview?.preflight.source.sha256 && request.source.jobSha256 === s.archiveReview?.preflight.selection.job.sha256;
-  const next = !s.archiveFile && !s.file && !s.bom.file ? { href: "/intake", label: "Import a copied job or source files", why: "Start with the files available for this board; pre-arrival review needs no native job." }
+  const next = !s.archiveFile && !s.file && !s.bom.file && !s.layout.file ? { href: "/intake", label: "Import a copied job or source files", why: "Start with the files available for this board; pre-arrival review needs no native job." }
     : s.archiveFile && !s.archiveReview ? { href: "/intake#archive-intake", label: "Check the selected native baseline", why: "Choose main, Temp or backup explicitly before interpreting native records." }
     : s.file && !s.result ? { href: "/intake", label: "Finish placement mapping", why: "Coordinates require explicit columns, units, rotation and scope." }
     : s.gerber.result?.status === "blocked" || s.gerber.result?.status === "unsupported" ? { href: "/intake#gerber-intake", label: "Review the Gerber interpretation hold", why: "Unqualified source geometry must not drive placement or window corrections." }
+    : s.layout.result && !s.archiveReview ? { href: "/findings#draft-preparation", label: "Review source preparation", why: "Keep source-owned family geometry and open questions together before attaching a scanned native job." }
     : request ? { href: "/repair", label: "Review the exact proposal set", why: fresh ? "Accepted changes can produce an isolated qualification candidate; pending and rejected changes are preserved." : "The stored proposal belongs to a different baseline and cannot be exported here." }
     : { href: "/repair", label: "Review native work and supported corrections", why: "Source correspondence alone does not establish an inspection defect or prove teaching complete." };
   return <section className="scan-panel scan-panel-body" aria-label="Project status and next action">

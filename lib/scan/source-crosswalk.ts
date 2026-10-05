@@ -3,6 +3,7 @@ import { translationDiagnostic } from "./source-registration-diagnostic";
 import type { BomResult } from "./bom-types";
 import type { PlacementResult } from "./placement-types";
 import type { ArchiveReview } from "./archive-types";
+import { draftPreparation } from "./draft-preparation";
 
 export function buildSourceCrosswalk(bom: BomResult | null, placement: PlacementResult | null, archive: ArchiveReview | null, comparisons: { name: string; result: PlacementResult | null }[] = [], layout: LayoutResult | null = null) {
   const normalize = (ref: string) => ref.trim().toUpperCase();
@@ -61,7 +62,7 @@ export function buildSourceCrosswalk(bom: BomResult | null, placement: Placement
       : preparation === "native-preparation-needed" ? "Source reference is present but no matching native placement is represented. Establish population, model and owned inspection geometry before creating one."
       : preparation === "existing-structure-preserved" ? "Preserve existing placement and Master teaching; review binding, geometry and exact remaining window/algorithm work before machine verification."
       : "Retain pre-arrival preparation and attach a scanned native copy when available.";
-    return { reference: key, sources: items, engineeringDnp, issues, nextAction: issues[0] ?? "Source references correspond; verify geometry and inspection work separately.", nativePreparation: "unassessed", preparation, nativeInstances, remainingAction, teaching: "unverified", workOrderPopulation: "unapproved" };
+    return { reference: key, sources: items, engineeringDnp, issues, nextAction: issues[0] ?? "Source references correspond; verify geometry and inspection work separately.", nativePreparation: "unassessed", preparation, nativeInstances, remainingAction, teaching: "unverified", workOrderPopulation: "unapproved", draftPreparation: draftPreparation(key, layout, archive, engineeringDnp, nativeInstances.length > 0) };
   });
   const coordinateSources = sourceNames.filter(name => name !== "Native CAD" && name !== "BOM");
   const registrationDiagnostics = coordinateSources.flatMap((from, i) => coordinateSources.slice(i + 1).map(to => {

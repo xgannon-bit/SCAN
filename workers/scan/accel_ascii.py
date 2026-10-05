@@ -335,6 +335,92 @@ def _style(node, factor):
             'geometryAvailable': not holds and factor is not None}
 
 
+def _explicit_layers(root, result, factor):
+    """Report numbered-layer outlines without resolving layer-class precedence.
+
+    Explicit records are useful even when a style's other layers are unsupported.
+    They are NOT a resolved pad stack, paste layer, board side or native window.
+    Class selectors are retained as unresolved evidence rather than expanded.
+    """
+    design = root.all('pcbDesign')
+    library = root.all('library')
+    if len(design) != 1 or len(library) != 1:
+        return
+    definitions = []
+    for node in design[0].all('layerDef'):
+        holds = []
+        number = _scalar(node, 'layerNum', holds)
+        kind = _scalar(node, 'layerType', holds)
+        definitions.append({'sourcePath': node.path, 'nameLiteral': node.args,
+                            'numberLiteral': number, 'typeLiteral': kind, 'holds': holds})
+    result['layerDefinitions'] = definitions
+    styles = {}
+    for node in library[0].all('padStyleDef'):
+        if len(node.args) != 1:
+            continue
+        holds = []
+        _unknown(node, {'holeDiam', 'isHolePlated', 'startRange', 'endRange', 'padShape'}, holds, named=True)
+        _, hole = _length(node, 'holeDiam', holds, factor, False)
+        explicit = []
+        for shape in node.all('padShape'):
+            if not shape.all('layerNumRef'):
+                continue
+            local = holds.copy()
+            _unknown(shape, {'layerNumRef', 'padShapeType', 'shapeWidth', 'shapeHeight'}, local)
+            layer = _scalar(shape, 'layerNumRef', local)
+            kind = _scalar(shape, 'padShapeType', local)
+            _, width = _length(shape, 'shapeWidth', local, factor)
+            _, height = _length(shape, 'shapeHeight', local, factor)
+            if layer is None or not re.fullmatch('[0-9]{1,5}', layer, re.ASCII):
+                _hold(local, 'INVALID_LAYER_ID', shape.path)
+            if kind not in ('Rect', 'Oval', 'Ellipse') or kind == 'Ellipse' and width != height:
+                _hold(local, 'UNSUPPORTED_PAD_SHAPE', shape.path)
+            if width is None or height is None or width <= 0 or height <= 0:
+                _hold(local, 'POSITIVE_SHAPE_DIMENSIONS_REQUIRED', shape.path)
+            explicit.append({'sourcePath': shape.path, 'layerNumber': layer, 'shape': kind,
+                             'widthMm': width, 'heightMm': height, 'holds': local})
+        duplicate = Counter(shape['layerNumber'] for shape in explicit)
+        for shape in explicit:
+            if duplicate[shape['layerNumber']] != 1:
+                _hold(shape['holds'], 'AMBIGUOUS_PAD_LAYER', shape['sourcePath'])
+        styles.setdefault(node.args[0], []).append({'holeMm': hole, 'holds': holds, 'shapes': explicit,
+            'unresolvedClassPaths': [shape.path for shape in node.all('padShape') if shape.all('layerType')],
+            'drillRangeRaw': {tag: [entry.args for entry in node.all(tag)] for tag in ('startRange', 'endRange')}})
+    for item in result['placements']:
+        pads = item['sourceOwnedPads']
+        selected = [styles.get(pad['padStyleRef'], []) for pad in pads]
+        unique = bool(pads) and all(len(style) == 1 for style in selected)
+        holes = [style[0]['holeMm'] for style in selected] if unique else []
+        item['mountingEvidence'] = ('hole-bearing' if any(h is not None and h > 0 for h in holes)
+            else 'explicit-zero-holes' if holes and all(h == 0 for h in holes)
+            else 'unknown')
+        item['explicitLayerGeometry'] = []
+        if not unique or not item['ownedPadCentersAvailable'] or item['identityHolds']:
+            continue
+        layers = sorted(set(shape['layerNumber'] for style in selected for shape in style[0]['shapes']
+                            if shape['layerNumber'] is not None))
+        for layer in layers:
+            outlines = []
+            unresolved = []
+            for pad, style_group in zip(pads, selected):
+                style = style_group[0]
+                matches = [shape for shape in style['shapes'] if shape['layerNumber'] == layer]
+                if len(matches) != 1 or matches[0]['holds']:
+                    break
+                shape = matches[0]
+                outlines.append({'padNumber': pad['padNumber'], 'padSourcePath': pad['sourcePath'],
+                    'shapeSourcePath': shape['sourcePath'], 'shape': shape['shape'],
+                    'widthMm': shape['widthMm'], 'heightMm': shape['heightMm'],
+                    'local': pad['local'], 'sourceBoardPoint': pad['sourceBoardPoint'],
+                    'localRotationDegrees': pad['rotation']['degrees'],
+                    'sourceBoardRotationDegrees': (item['rotation']['degrees'] + pad['rotation']['degrees']) % 360})
+                unresolved.extend(style['unresolvedClassPaths'])
+            if len(outlines) == len(pads):
+                item['explicitLayerGeometry'].append({'layerNumber': layer, 'pads': outlines,
+                    'meaning': 'explicit-numbered-layer-outlines-only', 'padStackResolved': False,
+                    'unresolvedClassPaths': sorted(set(unresolved)), 'nativeTransform': None})
+
+
 def _graphics(definition, selected, holds):
     _unknown(definition, {'originalName', 'patternGraphicsNameRef', 'patternGraphicsDef'}, holds, named=True)
     if selected is None and definition.all('patternGraphicsNameRef'):
@@ -572,6 +658,7 @@ def _extract(root, result, limits):
     for item in result['placements']:
         if references[item['refdes']] > 1:
             _hold(item['identityHolds'], 'DUPLICATE_SOURCE_REFDES', item['sourcePath'])
+    _explicit_layers(root, result, factor)
     result['uninterpretedTopLevelSections'] = [node.tag for node in root.children
                                              if node.tag not in {'asciiHeader', 'library', 'netlist', 'pcbDesign'}]
 
@@ -589,12 +676,12 @@ def read_accel(data: bytes, *, limits: AccelLimits | None = None) -> dict:
         raise ValueError('ACCEL limits must be positive integers')
     if not isinstance(data, bytes):
         raise TypeError('ACCEL source must be bytes')
-    result = {'artifactType': 'scan.accel-source-model', 'schemaVersion': '1', 'adapterVersion': 'accel-source-3',
+    result = {'artifactType': 'scan.accel-source-model', 'schemaVersion': '1', 'adapterVersion': 'accel-source-4',
               'status': 'blocked', 'sourceSha256': sha256(data).hexdigest(), 'sourceSize': len(data),
               'encoding': None, 'declaredUnits': None, 'asciiVersion': None, 'unitScaleToMm': None,
               'coordinateFrame': {'name': 'source-file-cartesian', 'yAxis': 'up', 'rotation': 'degrees-counterclockwise',
                                   'sourceOriginUnchanged': True, 'eagleTransform': None},
-              'placements': [], 'padStyles': [], 'componentInventory': [], 'definitionInventory': [],
+              'placements': [], 'padStyles': [], 'componentInventory': [], 'definitionInventory': [], 'layerDefinitions': [],
               'holds': [], 'warnings': [], 'machineExportAllowed': False,
               'limitations': ['Supported source layout evidence only; not a qualified Eagle reader or writer.',
                               'Nested graphics support is limited to one same-name RefDes/Value text block with an explicit direct placement selector; other nested forms withhold pad geometry.',
@@ -633,6 +720,6 @@ def read_accel(data: bytes, *, limits: AccelLimits | None = None) -> dict:
         # Syntax/aggregate-bound failures withhold partial geometry. Never expose
         # raw file contents through an exception or label truncated data complete.
         code = str(error) if isinstance(error, _Reject) else 'INVALID_UTF8'
-        result.update(status='blocked', placements=[], padStyles=[], componentInventory=[], definitionInventory=[])
+        result.update(status='blocked', placements=[], padStyles=[], componentInventory=[], definitionInventory=[], layerDefinitions=[])
         result['holds'] = [{'code': code, 'sourcePath': '/'}]
     return result
