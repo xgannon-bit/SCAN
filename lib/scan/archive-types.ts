@@ -1,4 +1,5 @@
 import type { NativeAccounting } from "./native-accounting";
+import type { NativeInspectionWork } from "./native-inspection-work";
 export type SnapshotRole = "main" | "temp" | "backup";
 export type LiteralDependencyReport = {
   artifactType: "scan.native-literal-dependencies"; schemaVersion: "1"; interpretation: "exact-source-string-correspondence-only"; detailLimit?: string;
@@ -67,6 +68,7 @@ export type SnapshotPreflight = {
   preservedDirectories: string[];
   literalDependencies?: LiteralDependencyReport;
   nativeAccounting?: NativeAccounting;
+  nativeInspectionWork?: NativeInspectionWork;
   nativeBindings?: NativeLiteralBindings;
   nativeRecords: Record<string, { status: "recorded" | "blocked" | "unsupported"; reason?: string; readerProfile?: string; schemaVersionClaim?: string; records: { kind: string; sourcePath: string; rawFields: Record<string, string[]> }[]; duplicateScalarFields?: { sourcePath: string; field: string }[]; countsByRecordKind?: Record<string, number> }>;
   xmlEnvelopes: Record<string, { status: "well-formed" | "blocked"; code?: string; reason?: string; rootName?: string; elementCount?: number; versionClaims?: unknown[] }>;

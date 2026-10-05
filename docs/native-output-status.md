@@ -15,6 +15,12 @@ work queue. A report or preserved original is not that result.
   scope, pad module/block ambiguity and decimal coordinate comparisons. The
   review shows these observations and exports their raw evidence. Literal ID
   joins and a separate PartNo/CAD-ID experiment do not establish pad ownership.
+- A source-bound inspection review queue in Review handoff after intake. Every observed
+  selected Master window and nested algorithm is retained once, with literal
+  shared-Master links to placement records. Missing/ambiguous scopes stay visible;
+  no selected Master means unknown workload, not zero. Offline geometry/binding
+  review and Eagle/Athena teaching checks remain separate unresolved tasks. The
+  JSON queue is recomputed when reopening a saved project.
 - Source-bound accounting for every selected-job CAD row and otherwise unmatched
   native placement. Duplicate reference groups remain groups, with no automatic
   survivor or enablement decision. Missing, repeated and malformed values remain

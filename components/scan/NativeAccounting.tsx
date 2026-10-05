@@ -1,4 +1,5 @@
 "use client";
+import { NativeInspectionWork } from "./NativeInspectionWork";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useScanSession } from "./ScanSession";
@@ -110,5 +111,6 @@ export function NativeAccounting() {
       {ungrouped.slice(0, 100).map(f => <details key={f.id}><summary>{f.code} · {f.message}</summary><p>Next: {report.remainingWork.find(w => w.findingId === f.id)?.nextAction}</p><ul>{f.sourcePaths.slice(0, 50).map(path => <li key={path}>{path}</li>)}</ul>{f.sourcePaths.length > 50 && <p>Showing 50 of {f.sourcePaths.length} paths; download the JSON for all evidence.</p>}</details>)}
     </>}
     {bindings && <NativeBindingDetails report={bindings} />}
+    <NativeInspectionWork report={archiveReview?.preflight.nativeInspectionWork} />
   </section>;
 }

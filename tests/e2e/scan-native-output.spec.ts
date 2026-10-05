@@ -24,6 +24,44 @@ async function download(page: Page, name: string) {
   return readFile((await (await pending).path())!);
 }
 
+test('inspection review retains shared windows, exports exact work and recomputes on project reopen', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  const parts = ['FICT-A', 'FICT-B'].map((ref, i) => `<PartData><ID>P${i}</ID><ParentId>M-FICT</ParentId><RefID>${ref}</RefID><MasterKey>SHARED-FICT</MasterKey></PartData>`).join('');
+  const job = `<JobContainer><JobXmlVersion>10.2</JobXmlVersion><PartDataList>${parts}</PartDataList></JobContainer>`;
+  const master = '<JobContainer><JobXmlVersion>10.2</JobXmlVersion><PartDataList><PartData><ID>MASTER-FICT</ID><MasterKey>SHARED-FICT</MasterKey></PartData></PartDataList><WindowDataList><WindowData><ID>WINDOW-FICT</ID><Name>Authored window</Name><ParentId>SHARED-FICT</ParentId><RelRoi><cx>1.25</cx></RelRoi><AlgorithmDataList><AlgorithmData><ID>ALGO-FICT</ID><Type>fictional-type</Type></AlgorithmData></AlgorithmDataList></WindowData></WindowDataList></JobContainer>';
+  await page.goto('/intake');
+  await archive(page, makeArchive({ ...syntheticMembers, [syntheticSelection.jobMember]: job, [syntheticSelection.masterMember]: master }));
+  await nav(page, 'Review handoff').click();
+  const queue = page.getByRole('region', { name: 'Remaining inspection review', exact: true });
+  await expect(queue.getByText('2 placement records · 1 Master windows · 1 algorithm records.')).toBeVisible();
+  await queue.getByLabel('Find inspection work by component or native ID').fill('FICT-A');
+  await queue.getByText('FICT-A · module M-FICT · part P0', { exact: true }).click();
+  await expect(queue.getByText(/This literal scope links 2 placement records/)).toBeVisible();
+  await queue.getByText('Window WINDOW-FICT · Authored window', { exact: true }).click();
+  await expect(queue.getByText('Geometry: unresolved · Binding: unresolved · Teaching: unverified')).toBeVisible();
+  const exported = JSON.parse((await download(page, 'Download inspection review queue (.json)')).toString());
+  expect(exported.scopes).toHaveLength(1);
+  expect(exported.scopes[0].partIds).toHaveLength(2);
+  expect(exported.windows).toHaveLength(1);
+  expect(exported.algorithms).toHaveLength(1);
+  expect(exported.inspectionRepairEstablished).toBe(false);
+  expect(exported.sourceContext.selection.job.member).toBe(syntheticSelection.jobMember);
+  await queue.screenshot({ path: info.outputPath('inspection-work.png') });
+  const saved = await download(page, 'Save project');
+  await page.reload();
+  await page.getByLabel('Saved placement review file', { exact: true }).setInputFiles({ name: 'authored.scan-project.json', mimeType: 'application/json', buffer: saved });
+  await expect(page.getByRole('status').filter({ hasText: 'Project reopened.' })).toBeVisible();
+  const restored = JSON.parse((await download(page, 'Download inspection review queue (.json)')).toString());
+  expect(restored.counts).toEqual(exported.counts);
+  expect(restored.sourceContext.archiveSha256).toBe(exported.sourceContext.archiveSha256);
+  expect(restored.windows[0].teachingReview).toBe('unverified');
+  await nav(page, 'Source intake').click();
+  await nav(page, 'Review handoff').click();
+  await expect(page.getByRole('heading', { name: 'Remaining inspection review' })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test('placement through native record review, changed-asset comparison and complete evidence download', async ({ page, baseURL }, info) => {
   const errors: string[] = [], external: string[] = [];
   page.on('pageerror', error => errors.push(error.message));

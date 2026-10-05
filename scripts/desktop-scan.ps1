@@ -64,6 +64,14 @@ function Get-ScanListeners {
       throw 'Port 3210 belongs to another application. It has been left untouched.'
     }
     $scanProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$($scanConnection.OwningProcess)"
+    if (-not $scanProcess) {
+      # The verified server can exit between TCP enumeration and process lookup.
+      # Ignore only a listener which is also absent in a fresh TCP snapshot.
+      $scanStillListening = @(Get-NetTCPConnection -LocalPort 3210 -State Listen -ErrorAction SilentlyContinue | Where-Object {
+        $_.OwningProcess -eq $scanConnection.OwningProcess -and $_.LocalAddress -eq $scanConnection.LocalAddress
+      })
+      if (-not $scanStillListening.Count) { continue }
+    }
     Assert-ScanServerProcess $scanProcess
     if (-not $scanSeen.ContainsKey($scanProcess.ProcessId)) { $scanSeen[$scanProcess.ProcessId] = $true; $scanProcess }
   }

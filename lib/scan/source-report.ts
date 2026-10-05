@@ -68,6 +68,7 @@ export function buildSourceReport(input: { sourceName: string | null; result: Pl
     archiveSource: archive ? { name: input.archiveName, sha256: archive.preflight.source.sha256, selection: archive.preflight.selection, capture: archive.capture } : null,
     sourceRelationship: "Placement-to-archive revision, population and coordinate registration have not been verified.",
     placementResult: result, nativePreflight: archive?.preflight ?? null, nativeAccounting, nativeBindings,
+    nativeInspectionWork: archive?.preflight.nativeInspectionWork ?? null,
     reviewNotes: notes, workItems, nativeQualification: input.nativeQualification ?? null,
     gerber: input.gerber ?? null, alignment: input.alignment ?? null,
     placements: result?.placements.map(placement => ({ sourceSha256: result.sourceSha256, sheetIndex: result.sheetIndex, sourceRow: placement.sourceRow, placementId: placement.placementId, module: placement.module, side: placement.side, refdes: placement.refdes, mpn: placement.mpn, nativePreparation: "not-assessed", reviewNote: notes[`row:${placement.sourceRow}`] ?? "" })) ?? [],
@@ -141,6 +142,13 @@ export function sourceReportText(report: ReturnType<typeof buildSourceReport>): 
     lines.push("", "NATIVE OBSERVATION EVIDENCE");
     for (const finding of accounting.findings) lines.push(`${finding.id} | ${finding.code} | group=${finding.groupId ?? "none"} | repair eligibility=${finding.repairEligibility}`, finding.message, `Exact source paths: ${JSON.stringify(finding.sourcePaths)}`);
     lines.push("Next actions above retain finding, blocker and group links. No reference appearing here counts as completed native preparation.");
+  }
+  if (report.nativeInspectionWork) {
+    const queue = report.nativeInspectionWork;
+    lines.push("", "INSPECTION REVIEW QUEUE — UNVERIFIED", queue.reason,
+      `Placement records: ${queue.counts?.nativeParts ?? "unknown"}; Master windows: ${queue.counts?.masterWindows ?? "unknown"}; algorithm records: ${queue.counts?.masterAlgorithms ?? "unknown"}.`,
+      "Shared Master scopes and every observed window/algorithm are retained in the JSON handoff and inspection queue download. A scalar trial cannot complete binding or teaching checks.");
+    for (const action of queue.actions) lines.push(`${action.owner}: ${action.nextAction}`);
   }
   return lines.join("\n") + "\n";
 }

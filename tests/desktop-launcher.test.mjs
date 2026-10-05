@@ -51,6 +51,20 @@ function check(body) {
 }
 const windows = { skip: process.platform !== 'win32' };
 
+test('desktop listener check tolerates a process and listener disappearing together', windows, () => check(`
+$script:processes=@(); $script:tcpReads=0
+function Get-NetTCPConnection { [CmdletBinding()] param($LocalPort,$State) $script:tcpReads++; if ($script:tcpReads -eq 1) { $script:connections } }
+Require (@(Get-ScanListeners).Count -eq 0) 'Exited listener should be absent.'
+Require ($script:tcpReads -eq 2) 'Fresh listener snapshot was not checked.'
+Require ($script:killed.Count -eq 0) 'No process may be stopped.'
+`));
+
+test('desktop listener check still refuses an unidentifiable active listener', windows, () => check(`
+$script:processes=@()
+Require-Refusal { Get-ScanListeners }
+Require ($script:killed.Count -eq 0) 'No process may be stopped.'
+`));
+
 test('desktop readiness verifies all advertised local JS/CSS and deduplicates URLs', windows, () => check(`
 Require (Get-ScanReady) 'Healthy authored assets were rejected.'
 Require ($script:requests.Count -eq 3) 'Expected dashboard, one CSS and one JS fetch.'
