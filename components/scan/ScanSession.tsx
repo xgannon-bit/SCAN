@@ -4,6 +4,10 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import type { PlacementConfig, PlacementPreview, PlacementResult } from "@/lib/scan/placement-types";
 import { downloadJson, encodeReview, encodeGerberDraft, type ReviewNotes, type RestoredGerber } from "@/lib/scan/review-session";
 import { decodeProject, encodeProject, retainProjectEvidence, type ProjectEvidence } from "@/lib/scan/project-session";
+import { useSourceContext } from "./SourceContext";
+import { useLayoutSession } from "./LayoutSession";
+import { useComparisonSession } from "./ComparisonSession";
+import { useBomSession } from "./BomSession";
 import { useArchiveSession } from "./ArchiveSession";
 import { buildNativeQualification } from "@/lib/scan/native-qualification";
 import { useGerberSession } from "./GerberSession";
@@ -17,6 +21,7 @@ export function retainSessionNote(notes: ReviewNotes): ReviewNotes {
 }
 
 function usePlacementSession() {
+  const layout = useLayoutSession(); const bom = useBomSession(); const comparisons = useComparisonSession();
   const [attachments, setAttachments] = useState<{ role: "BOM" | "evidence"; file: File }[]>([]);
   const [repair, setRepair] = useState<RepairSession>(emptyRepair);
   const archive = useArchiveSession();
@@ -75,7 +80,7 @@ function usePlacementSession() {
   }
   function changeSheet(value: number) { invalidate(); setNotes(retainSessionNote); setSheet(value); setPreview(null); }
   function changeDelimiter(value: string) { invalidate(); setNotes(retainSessionNote); setDelimiter(value); setPreview(null); }
-  function reset() { changeFile(null); changeBaseline(null); gerber.reset(); setEagleVersion(""); setNotes({}); setProjectEvidence(undefined); setRepair(emptyRepair()); setAttachments([]); evidenceSources.current.clear(); }
+  function reset() { changeFile(null); changeBaseline(null); gerber.reset(); bom.reset(); comparisons.reset(); layout.changeFile(null); setEagleVersion(""); setNotes({}); setProjectEvidence(undefined); setRepair(emptyRepair()); setAttachments([]); evidenceSources.current.clear(); }
   function cancel() {
     revision.current += 1;
     controller.current?.abort(); controller.current = null;
@@ -146,21 +151,21 @@ function usePlacementSession() {
         gerber: gerber.file ? { file: gerber.file, settings: { config: gerber.config, points: gerber.points, scope: gerber.scope, tolerance: gerber.tolerance, basis: gerber.basis, checked: !!gerber.alignment } } : null,
         original: archive.archiveFile ? { file: archive.archiveFile, selection: archive.selection, draft: archive.archiveDraft } : null,
         returned: returnedArchive.archiveFile ? { file: returnedArchive.archiveFile, selection: returnedArchive.selection, draft: returnedArchive.archiveDraft } : null,
-        attachments, notes, repair: repairOverride, machineVersion: eagleVersion, ...(projectEvidence ? { evidence: projectEvidence } : {}),
+        ...(layout.file ? { layout: { file: layout.file, checked: !!layout.result } } : {}), comparisons: comparisons.entries, ...(bom.file ? { bom: { file: bom.file, config: bom.config, sheet: bom.sheet, delimiter: bom.delimiter, checked: !!bom.result } } : {}), attachments, notes, repair: repairOverride, machineVersion: eagleVersion, ...(projectEvidence ? { evidence: projectEvidence } : {}),
       });
   }
 
   async function saveProject() {
-    if (busy || archive.archiveBusy || returnedArchive.archiveBusy || gerber.busy || gerber.alignBusy || (!file && !archive.archiveFile && !gerber.file)) return;
-    const current = revision.current; const originalRevision = archive.archiveRevision.current;
+    if (busy || layout.busy || bom.busy || comparisons.busy || archive.archiveBusy || returnedArchive.archiveBusy || gerber.busy || gerber.alignBusy || (!file && !archive.archiveFile && !gerber.file && !bom.file && !layout.file && !comparisons.entries.length)) return;
+    const current = revision.current; const layoutRevision = layout.revision.current; const bomRevision = bom.revision.current; const comparisonRevision = comparisons.revision.current; const originalRevision = archive.archiveRevision.current;
     const returnedRevision = returnedArchive.archiveRevision.current; const geometryRevision = gerber.revision.current;
     const abort = new AbortController(); controller.current?.abort(); controller.current = abort;
     setBusy(true); setError(""); setNotice("");
     try {
       const output = await buildProjectBlob();
-      if (current !== revision.current || originalRevision !== archive.archiveRevision.current || returnedRevision !== returnedArchive.archiveRevision.current || geometryRevision !== gerber.revision.current || abort.signal.aborted) return;
+      if (current !== revision.current || originalRevision !== archive.archiveRevision.current || returnedRevision !== returnedArchive.archiveRevision.current || geometryRevision !== gerber.revision.current || layoutRevision !== layout.revision.current || bomRevision !== bom.revision.current || comparisonRevision !== comparisons.revision.current || abort.signal.aborted) return;
       const url = URL.createObjectURL(output); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "scan-project.scan-project.json"; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-      setNotice("Project saved with original sources, archive selections, mappings, notes and machine version. Reopening verifies bytes and recomputes findings and comparisons; reviewed repair decisions and candidate revision receipts are retained. Repair export always rechecks source and exact scope.");
+      setNotice("Download requested: scan-project.scan-project.json. Check your browser downloads for the saved file. The package contains original sources, BOM, comparison mappings, archive selections, notes and machine version. Reopening verifies bytes and recomputes findings and comparisons; reviewed repair decisions and candidate revision receipts are retained. Repair export always rechecks source and exact scope.");
     } catch (failure) { if (current === revision.current && !abort.signal.aborted) setError(failure instanceof Error ? failure.message : "Project could not be saved. Your current work remains available."); }
     finally { if (controller.current === abort) { controller.current = null; setBusy(false); } }
   }
@@ -186,7 +191,10 @@ function usePlacementSession() {
         ...(restored.original ? [[restored.original.file, restored.original.record.source.sha256] as const] : []),
         ...(restored.returned ? [[restored.returned.file, restored.returned.record.source.sha256] as const] : []),
       ]);
-      gerber.reset();
+      gerber.reset(); bom.reset(); comparisons.reset(); layout.changeFile(null);
+      comparisons.loadDrafts(restored.comparisons ?? []);
+      if (restored.layout) layout.changeFile(restored.layout.file);
+      if (restored.bom) await bom.restore({ ...restored.bom, checked: false }, abort.signal);
       // Install verified source drafts before any worker request, so cancellation
       // or a parser failure cannot discard another source's saved settings.
       if (savedGerber) {
@@ -229,6 +237,10 @@ function usePlacementSession() {
       setPreview(freshPreview); setResult(freshResult);
       if (savedGerber && gerber.revision.current === geometryRevision) await gerber.restore(savedGerber, freshResult, abort.signal);
       if (current !== revision.current || abort.signal.aborted) return;
+      if (restored.layout?.checked) await layout.run(restored.layout.file, abort.signal);
+      if (restored.bom) await bom.restore(restored.bom, abort.signal);
+      if (restored.comparisons?.length) await comparisons.restore(restored.comparisons, abort.signal);
+      if (current !== revision.current || abort.signal.aborted) return;
       setSelectedRow(freshResult?.placements.some(value => value.sourceRow === placement?.record.selectedRow) ? placement!.record.selectedRow : null);
       setNotice(restored.original ? archivesFresh ? "Project reopened. All embedded bytes were hash-checked; archive inventory, selected preflight and available comparisons were recomputed. Notes and historical evidence remain annotations." : "Project sources reopened after hash verification. Archive checks need attention; inspect the original and returned archive panels. No saved derived reports were trusted." : "Review reopened. Embedded source bytes were hash-checked and parsed again locally; notes are user annotations.");
     } catch (failure) {
@@ -237,8 +249,10 @@ function usePlacementSession() {
     } finally { if (controller.current === abort) { controller.current = null; setBusy(false); } }
   }
 
+  const contextFiles = useMemo(() => [file, gerber.file, bom.file, layout.file, ...comparisons.entries.map(item => item.file), ...attachments.map(item => item.file)], [file, gerber.file, bom.file, layout.file, comparisons.entries, attachments]);
+  const sourceContext = useSourceContext(contextFiles, JSON.stringify({ config, sheet, delimiter, gerber: { config: gerber.config, points: gerber.points, scope: gerber.scope, tolerance: gerber.tolerance, basis: gerber.basis }, bom: { config: bom.config, sheet: bom.sheet, delimiter: bom.delimiter }, comparisons: comparisons.entries.map(item => ({ config: item.config, sheet: item.sheetIndex, delimiter: item.delimiter })) }));
   const stage = busy ? "Processing source" : error ? "Import needs attention" : result ? result.status === "success" ? "Placement parsing complete" : "Placement review needs attention" : preview ? "Mapping needs validation" : file ? "Ready to read" : "No source loaded";
-  return { attachments, setAttachments, buildProjectBlob, repair, setRepair, file, preview, result, config, sheet, delimiter, busy, error, selectedRow, notes, notice, stage, edit, changeFile, changeSheet, changeDelimiter, reset, cancel, run, download, setSelectedRow, editNote, saveReview, saveProject, openReview, projectEvidence, ...archive, changeArchive: changeBaseline, returnedArchive, eagleVersion, setEagleVersion, qualification, gerber };
+  return { sourceContext, layout, comparisons, bom, attachments, setAttachments, buildProjectBlob, repair, setRepair, file, preview, result, config, sheet, delimiter, busy, error, selectedRow, notes, notice, stage, edit, changeFile, changeSheet, changeDelimiter, reset, cancel, run, download, setSelectedRow, editNote, saveReview, saveProject, openReview, projectEvidence, ...archive, changeArchive: changeBaseline, returnedArchive, eagleVersion, setEagleVersion, qualification, gerber };
 }
 
 const ScanSessionContext = createContext<ReturnType<typeof usePlacementSession> | null>(null);

@@ -6,10 +6,11 @@ A local-first engineering companion for automated optical inspection programming
 
 ## Current status
 
-Locally runnable UI foundation with pinned dependencies and repeatable browser
-acceptance. See [local setup and limits](docs/ui-foundation.md). This is not an
-installed analyzer, machine-compatible job writer, or released AOI program.
-Capability descriptions below are development goals, not completed functionality.
+Locally runnable offline evaluation app. [Import → Review → Export](docs/evaluation-guide.md)
+connects copied native jobs, placement/BOM/Gerber/source-layout analysis, exact
+reviewed qualification trials and a reopenable project. Whole-board repair
+reasoning, native-frame/binding qualification and Eagle/optical validation remain
+incomplete; the app is not a released or machine-validated AOI programmer.
 
 A connected dashboard at `/` shares a working
 [placement intake](docs/placement-intake.md) at `/intake`, source findings at

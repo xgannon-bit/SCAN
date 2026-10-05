@@ -36,7 +36,9 @@ export function validateReviewSession(value: unknown): ReviewSessionFile {
   exact(source, ["name", "size", "sha256", "base64"]);
   if (!text(source.name, 255) || !/\.(xlsx|xls|csv)$/i.test(source.name) || /[/\\]/.test(source.name) || !integer(source.size, 1, 8_000_000) || !text(source.sha256, 64) || !/^[a-f0-9]{64}$/.test(source.sha256) || typeof source.base64 !== "string" || source.base64.length !== 4 * Math.ceil(source.size / 3) || !/^[A-Za-z0-9+/]*={0,2}$/.test(source.base64)) throw new Error("Review source metadata is invalid.");
   const config = object(v.config);
-  exact(config, ["startRow", "columns", "module", "side", "units", "rotationDirection", "decimalSeparator", "pairSeparator"]);
+  exact(config, ["startRow", "columns", "module", "side", "units", "rotationDirection", "decimalSeparator", "pairSeparator", ...(Object.hasOwn(config, "encoding") ? ["encoding"] : []), ...(Object.hasOwn(config, "csvRecovery") ? ["csvRecovery"] : [])]);
+  if (Object.hasOwn(config, "csvRecovery") && typeof config.csvRecovery !== "boolean") throw new Error("Invalid saved CSV recovery.");
+  if (Object.hasOwn(config, "encoding") && !["utf-8", "windows-1252"].includes(String(config.encoding))) throw new Error("Invalid saved CSV encoding.");
   if (["units", "rotationDirection", "decimalSeparator", "pairSeparator"].some(key => !text(config[key], 20))) throw new Error("Review conventions must be text.");
   const columns = object(config.columns);
   const allowedColumns = ["refdes", "mpn", "x", "y", "xy", "rotation", "side", "module", "footprint"];

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation, localcontext
 from hashlib import sha256
 import io
@@ -33,6 +33,7 @@ class Table:
     sheets: list[dict]
     merged: list[tuple[int, int, int, int]]
     sheet_index: int
+    interpretation_warnings: list[str] = field(default_factory=list)
 
 
 def _zip_guard(data: bytes) -> None:
@@ -75,27 +76,53 @@ def _zip_guard(data: bytes) -> None:
                                 raise IntakeError("Worksheet exceeds row or column limits.")
 
 
-def read_table(data: bytes, kind: str, sheet_index: int = 0, delimiter: str = ',') -> Table:
+def read_table(data: bytes, kind: str, sheet_index: int = 0, delimiter: str = ',', encoding: str = 'utf-8', csv_recovery: bool = False) -> Table:
     if not data or len(data) > MAX_BYTES:
         raise IntakeError("Select a nonempty file no larger than 8 MB.")
     if type(sheet_index) is not int or not 0 <= sheet_index < 20:
         raise IntakeError("Select a valid worksheet index.")
     if delimiter not in (',', ';', '\t'):
         raise IntakeError("CSV delimiter must be comma, semicolon or tab.")
-    merged = []
+    merged = []; interpretation_warnings = []
+    if type(csv_recovery) is not bool: raise IntakeError('Invalid CSV recovery setting.')
     if kind == 'csv':
         if sheet_index != 0:
             raise IntakeError("CSV has only one sheet.")
+        if encoding not in ('utf-8', 'windows-1252'):
+            raise IntakeError('Select UTF-8 or explicitly confirmed Windows-1252 CSV encoding.')
         try:
-            text = data.decode('utf-8-sig')
+            text = data.decode('utf-8-sig' if encoding == 'utf-8' else 'cp1252')
         except UnicodeError:
-            raise IntakeError("CSV must be UTF-8. Save legacy encodings as UTF-8 first.") from None
-        reader = csv.reader(io.StringIO(text, newline=''), delimiter=delimiter, strict=True)
+            raise IntakeError("CSV is not valid in the selected encoding. Confirm its exporter encoding and select Windows-1252 explicitly if appropriate; original bytes will be preserved.") from None
         rows = []
-        for row in reader:
-            if len(rows) >= MAX_ROWS or len(row) > MAX_COLUMNS:
-                raise IntakeError("CSV exceeds 10,000 rows or 64 columns.")
-            rows.append(row)
+        if csv_recovery:
+            description_columns = None
+            for line_number, line in enumerate(text.splitlines(), 1):
+                try:
+                    row = next(csv.reader([line], delimiter=delimiter, strict=True))
+                except csv.Error:
+                    if not description_columns or description_columns < 2:
+                        raise IntakeError(f'CSV row {line_number} is malformed; no supported trailing Description recovery applies.') from None
+                    pattern = r'^((?:"(?:[^"]|"")*"' + re.escape(delimiter) + r'){' + str(description_columns - 1) + r'})"(.*)"$'
+                    match = re.fullmatch(pattern, line)
+                    if not match:
+                        raise IntakeError(f'CSV row {line_number} is malformed outside the supported trailing Description field.')
+                    prefix = next(csv.reader([match[1]], delimiter=delimiter, strict=True))
+                    row = prefix[:-1] + [match[2]]
+                    interpretation_warnings.append(f'Row {line_number}: unescaped quotes in final Description retained as literal text under explicit recovery; original bytes unchanged.')
+                if row and str(row[-1]).strip().lower() == 'description' and any(str(v).strip().lower() in ('designator', 'refdes', 'reference') for v in row):
+                    description_columns = len(row)
+                if len(rows) >= MAX_ROWS or len(row) > MAX_COLUMNS: raise IntakeError('CSV exceeds row or column limits.')
+                rows.append(row)
+        else:
+            reader = csv.reader(io.StringIO(text, newline=''), delimiter=delimiter, strict=True)
+            try:
+                for row in reader:
+                    if len(rows) >= MAX_ROWS or len(row) > MAX_COLUMNS:
+                        raise IntakeError("CSV exceeds 10,000 rows or 64 columns.")
+                    rows.append(row)
+            except csv.Error:
+                raise IntakeError(f'CSV row {reader.line_num} has malformed quoting. Inspect the source; explicit trailing Description recovery is available only for that supported exporter defect.') from None
         sheets = [{'index': 0, 'name': 'CSV'}]
     elif kind == 'xlsx':
         if not openpyxl.DEFUSEDXML:
@@ -132,7 +159,7 @@ def read_table(data: bytes, kind: str, sheet_index: int = 0, delimiter: str = ',
             raise IntakeError("A cell exceeds the text limit or contains a NUL character.")
     if not rows or not width:
         raise IntakeError("The selected sheet is empty.")
-    return Table(rows, sheets, merged, sheet_index)
+    return Table(rows, sheets, merged, sheet_index, interpretation_warnings)
 
 
 def inspect_table(table: Table, data: bytes) -> dict:
@@ -141,8 +168,9 @@ def inspect_table(table: Table, data: bytes) -> dict:
         if v is None or isinstance(v, (str, int, float, bool)): return v
         return '[Unsupported cell type]'
     return {'status': 'success', 'artifactType': 'scan.placement-preview', 'sourceSha256': sha256(data).hexdigest(),
-            'sheets': table.sheets, 'sheetIndex': table.sheet_index, 'rowCount': len(table.rows),
+            'interpretationWarnings': table.interpretation_warnings, 'sheets': table.sheets, 'sheetIndex': table.sheet_index, 'rowCount': len(table.rows),
             'columnCount': len(table.rows[0]), 'preview': [[preview(v) for v in row] for row in table.rows[:6]],
+            'headerCandidates': [{'sourceRow': i + 1, 'values': [preview(v) for v in row]} for i, row in enumerate(table.rows[:40]) if any(isinstance(v, str) and v.strip().lower() in ('designator', 'refdes', 'reference') for v in row)],
             'machineExportAllowed': False}
 
 
@@ -179,8 +207,11 @@ def _number(value, decimal_separator) -> Decimal:
 
 def normalize(table: Table, data: bytes, config: dict) -> dict:
     required = {'startRow', 'columns', 'module', 'side', 'units', 'rotationDirection', 'decimalSeparator', 'pairSeparator'}
-    if not isinstance(config, dict) or set(config) != required:
+    if not isinstance(config, dict) or set(config) != required | ({'encoding'} if 'encoding' in config else set()) | ({'csvRecovery'} if 'csvRecovery' in config else set()):
         raise IntakeError("Placement mapping fields are missing or unrecognized.")
+    if type(config.get('csvRecovery', False)) is not bool: raise IntakeError('Invalid CSV recovery setting.')
+    if config.get('encoding', 'utf-8') not in ('utf-8', 'windows-1252'):
+        raise IntakeError('Invalid explicit source encoding.')
     columns = config['columns']
     allowed = {'refdes', 'mpn', 'x', 'y', 'xy', 'rotation', 'side', 'module', 'footprint'}
     if not isinstance(columns, dict) or not set(columns) <= allowed or not {'refdes', 'rotation'} <= set(columns):
@@ -262,7 +293,7 @@ def normalize(table: Table, data: bytes, config: dict) -> dict:
     if errors: holds.append('Resolve all row errors; partial results are not a complete placement set.')
     if not records: holds.append('No valid placement rows were found.')
     return {'status': 'blocked' if holds else 'success', 'artifactType': 'scan.normalized-placements', 'schemaVersion': '1',
-            'sourceSha256': sha256(data).hexdigest(), 'sheetIndex': table.sheet_index, 'mapping': config,
+            'sourceSha256': sha256(data).hexdigest(), 'interpretationWarnings': table.interpretation_warnings, 'sheetIndex': table.sheet_index, 'mapping': config,
             'coordinateFrame': 'source CAD frame; no alignment, origin shift or bottom-side mirror applied',
             'counts': {'sourceRows': len(table.rows) - start + 1, 'parsed': len(records), 'skippedBlank': skipped, 'errors': errors, 'warnings': warnings},
             'placements': records, 'issues': issues, 'holds': holds, 'machineExportAllowed': False,

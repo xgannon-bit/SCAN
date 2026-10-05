@@ -49,7 +49,7 @@ export function ArchiveIntake({ session, returned = false }: { session?: ReturnT
       {archiveNotice && <p role="status">{archiveNotice}</p>}
       {archiveReview && <div className="scan-content-stack scan-archive-result">
         <h3>Snapshot integrity verified; native preparation blocked</h3><p>{archiveReview.preflight.preservedFiles.length} preserved files verified against their captured bytes. This does not prove native dependencies or machine compatibility.</p>
-        <dl className="scan-detail-grid"><div><dt>Selected job</dt><dd>{archiveReview.preflight.selection.job.role}</dd></div><div><dt>Selected master</dt><dd>{archiveReview.preflight.selection.master?.role ?? "Not selected"}</dd></div><div><dt>Native candidate</dt><dd>None</dd></div></dl>
+        <dl className="scan-detail-grid"><div><dt>Selected job</dt><dd>{archiveReview.preflight.selection.job.role}</dd></div><div><dt>Selected master</dt><dd>{archiveReview.preflight.selection.master?.role ?? "Not selected"}</dd></div><div><dt>Analysis state</dt><dd>Preserved baseline; candidate revisions are separate in Repair Review</dd></div></dl>
         <details><summary>Capture identity and XML envelope checks</summary><p className="scan-hash">Snapshot: {archiveReview.capture.snapshotId}</p><p className="scan-hash">Package SHA-256: {archiveReview.capture.packageSha256}</p><pre className="scan-json-evidence">{JSON.stringify(archiveReview.preflight.xmlEnvelopes, null, 2)}</pre></details>
         <NativeRecordInventory report={archiveReview.preflight} />
         <ul className="scan-issue-list">{archiveReview.preflight.holds.map((hold, index) => <li key={`${hold.code}-${index}`}><strong>{hold.scope}: {hold.reason}</strong><p>{hold.nextAction}</p></li>)}</ul>

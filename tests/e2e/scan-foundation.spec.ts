@@ -10,7 +10,7 @@ test("foundation: truthful capabilities, primitives, focus and loopback assets",
   });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Job dashboard", exact: true })).toBeVisible();
-  await expect(page.getByRole("status", { name: "Native capability status" })).toContainText("Native job preparation is unfinished");
+  await expect(page.getByRole("status", { name: "Native capability status" })).toContainText("Offline evaluation — machine qualification pending.");
   await expect(page.getByRole("link", { name: "Open placement intake" })).toHaveAttribute("href", "/intake");
   for (const name of ["Export machine job", "Save placement record (JSON)"]) {
     await expect(page.getByRole("button", { name, exact: true })).toBeDisabled();
@@ -31,7 +31,7 @@ test("foundation: truthful capabilities, primitives, focus and loopback assets",
   await expect(page.getByRole("main")).toHaveCount(1);
   await page.getByRole("button", { name: "Capability details" }).focus();
   await expect(page.getByRole("button", { name: "Capability details" })).toBeFocused();
-  await expect(page.locator('[data-slot="tooltip-content"]')).toContainText("machine-job export are unavailable");
+  await expect(page.locator('[data-slot="tooltip-content"]')).toContainText("Eagle compatibility and inspection behavior remain unverified.");
   await page.keyboard.press("Escape");
   await expect(page.locator('[data-slot="tooltip-content"]')).not.toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

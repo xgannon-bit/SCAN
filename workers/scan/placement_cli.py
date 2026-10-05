@@ -15,7 +15,7 @@ def main():
         if len(request_bytes) > 16_384: raise IntakeError('Request exceeds 16 KiB.')
         request = json.loads(request_bytes.decode('utf-8'))
         fields = {'protocolVersion', 'action', 'source', 'format', 'sheetIndex', 'delimiter', 'config'}
-        if not isinstance(request, dict) or set(request) != fields or request['protocolVersion'] != '1' or request['action'] not in ('inspect', 'normalize'):
+        if not isinstance(request, dict) or set(request) != fields or request['protocolVersion'] != '1' or request['action'] not in ('inspect', 'normalize', 'bom', 'layout'):
             raise IntakeError('Invalid placement worker request.')
         if not isinstance(request['source'], str) or not Path(request['source']).is_absolute():
             raise IntakeError('Source must be an absolute local file path.')
@@ -24,8 +24,18 @@ def main():
         with source.open('rb') as handle: data = handle.read(MAX_BYTES + 1)
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')  # Vendor cell values must never reach logs.
-            table = read_table(data, request['format'], request['sheetIndex'], request['delimiter'])
-            result = inspect_table(table, data) if request['action'] == 'inspect' else normalize(table, data, request['config'])
+            if request['action'] == 'layout':
+                from .accel_ascii import read_accel
+                if request['format'] != 'pcb' or request['config'] != {} or request['sheetIndex'] != 0:
+                    raise IntakeError('Invalid source layout settings.')
+                result = read_accel(data)
+            else:
+                table = read_table(data, request['format'], request['sheetIndex'], request['delimiter'], request['config'].get('encoding', 'utf-8') if isinstance(request['config'], dict) else 'utf-8', request['config'].get('csvRecovery', False) if isinstance(request['config'], dict) else False)
+            if request['action'] == 'bom':
+                from .bom_intake import normalize_bom
+                result = normalize_bom(table, data, request['config'])
+            elif request['action'] != 'layout':
+                result = inspect_table(table, data) if request['action'] == 'inspect' else normalize(table, data, request['config'])
         if expected != result['sourceSha256'] or _fresh_hash(source, MAX_BYTES)[0] != expected:
             raise IntakeError('Source changed during reading. Select it again.')
         if request['action'] == 'normalize':

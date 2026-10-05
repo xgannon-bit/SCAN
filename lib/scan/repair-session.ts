@@ -8,6 +8,7 @@ export type RepairRequest = {
   acceptances: { proposalId: string; proposalSha256: string; decision: "pending" | "accepted" | "rejected"; reviewer: string }[];
 };
 export type RepairSession = {
+  sourceContext?: string;
   request: RepairRequest | null;
   history: { id: string; recordedAt: string; sourceSha256: string; packageSha256: string; candidateSha256: string; request: RepairRequest }[];
   work: { key: string; sourceSha256: string; snapshotId: string; status: "review-needed" | "reviewed-offline" | "intentionally-excluded" | "machine-work"; note: string }[];
@@ -16,7 +17,7 @@ export const emptyRepair = (): RepairSession => ({ request: null, history: [], w
 export function validateRepairSession(value: unknown): RepairSession {
   const item = value as RepairSession;
   const hash = (v: unknown) => typeof v === "string" && /^[a-f0-9]{64}$/.test(v);
-  if (!item || typeof item !== "object" || Object.keys(item).sort().join() !== "history,request,work" || JSON.stringify(item).length > 5_000_000 || !Array.isArray(item.history) || item.history.length > 50 || !Array.isArray(item.work) || item.work.length > 10000) throw new Error("Invalid saved repair session.");
+  if (!item || typeof item !== "object" || Object.keys(item).filter(key => key !== "sourceContext").sort().join() !== "history,request,work" || (Object.hasOwn(item, "sourceContext") && !hash(item.sourceContext)) || JSON.stringify(item).length > 5_000_000 || !Array.isArray(item.history) || item.history.length > 50 || !Array.isArray(item.work) || item.work.length > 10000) throw new Error("Invalid saved repair session.");
   function request(r: RepairRequest) {
     if (!r || r.artifactType !== "scan.qualification-patch-request" || r.schemaVersion !== "1" || r.purpose !== "qualification-only" || !hash(r.source?.archiveSha256) || !hash(r.source?.jobSha256) || !Array.isArray(r.proposals) || r.proposals.length > 256 || !Array.isArray(r.acceptances) || !Array.isArray(r.evidence) || JSON.stringify(r).length > 1_000_000) throw new Error("Invalid saved repair request. No authority was restored.");
     const text = (value: unknown, maximum = 2048) => typeof value === "string" && value.length <= maximum && !value.includes("\0");

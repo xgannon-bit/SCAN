@@ -24,12 +24,16 @@ export function PlacementIntake() {
       <p>Files are processed on this laptop. Originals are read only. Your selected file and mapping stay available across SCAN screens. Refresh or Clear file resets the session.</p>
       <fieldset disabled={busy} className={styles.grid}>
         <label>Placement file (.xlsx, .xls or .csv)<input ref={fileInput} type="file" accept=".xlsx,.xls,.csv" onChange={(e) => changeFile(e.target.files?.[0] || null)} /></label>
+        <label>CSV encoding<select value={config.encoding ?? "utf-8"} onChange={event => edit({ encoding: event.target.value as "utf-8" | "windows-1252" })}><option value="utf-8">UTF-8 (default)</option><option value="windows-1252">Windows-1252 — confirmed legacy exporter</option></select></label>
+        <label><input type="checkbox" checked={config.csvRecovery ?? false} onChange={event => edit({ csvRecovery: event.target.checked })} /> Recover unescaped quotes only in a final Description field (original bytes unchanged)</label>
         <label>CSV delimiter<select value={delimiter} onChange={(e) => changeDelimiter(e.target.value)}><option value=",">Comma</option><option value=";">Semicolon</option><option value={"\t"}>Tab</option></select></label>
         <label>Worksheet index (starts at 0)<input type="number" min="0" max="19" value={sheet} onChange={(e) => changeSheet(Number(e.target.value))} /></label>
       </fieldset>
       <div className={styles.actions}><Button disabled={!file || busy} onClick={() => run("inspect")}><Upload size={16} /> Read file</Button>{busy && <Button variant="outline" onClick={cancel}>Cancel import</Button>}<span aria-live="polite">{busy ? "Reading and validating source…" : file ? `${file.name} · ${(file.size / 1024).toFixed(1)} KB` : "8 MB maximum"}</span></div>
+      {preview?.interpretationWarnings?.map(warning => <p key={warning}>{warning}</p>)}
       {preview && <><p>{preview.rowCount} source rows · {preview.columnCount} columns · sheet {preview.sheetIndex}. Worksheets: {preview.sheets.map(s => `${s.index}: ${s.name}`).join(", ")}.</p><div className={styles.scroll}><table><caption>First six rows, including any headers. Confirm the column meanings below.</caption><thead><tr><th>Row</th>{Array.from({ length: preview.columnCount }, (_, i) => <th key={i}>{columnName(i + 1)}</th>)}</tr></thead><tbody>{preview.preview.map((row, i) => <tr key={i}><th>{i + 1}</th>{row.map((value, j) => <td key={j}>{value === null ? "—" : String(value)}</td>)}</tr>)}</tbody></table></div></>}
     </section>
+    {!!preview?.headerCandidates?.length && <section className={styles.panel}><h3>Header rows found in this source</h3>{preview.headerCandidates.map(header => <p key={header.sourceRow}>Row {header.sourceRow}: {header.values.map(String).join(" | ")}. Data normally begins on the following row; confirm mapping below.</p>)}</section>}
     {preview && <section className={styles.panel} aria-labelledby="mapping-title">
       <h2 id="mapping-title">2. Confirm mapping and conventions</h2>
       <p>Column choices are editable starting points. Check them against the preview. Headerless sheets start at row 1. Board side does not apply a mirror.</p>

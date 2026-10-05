@@ -8,10 +8,10 @@ See [the evaluation guide](evaluation-guide.md). Repair Review now connects sele
 
 | Requested requirement | Current implementation / remaining gap |
 | --- | --- |
-| Open/resume sources | Native ZIPs and explicit snapshot/Master selection, placement/Gerber mapping and optional hash-verified BOM/evidence attachments persist. BOM parsing/reconciliation missing. |
+| Open/resume sources | Native ZIPs and explicit snapshot/Master selection, placement/Gerber/BOM mappings, three comparison placements, ACCEL PCB source and hash-verified supporting documents persist. Grouped BOM references, quantities, engineering DNP and exact MPN discrepancies are reconciled; work-order approval remains unknown. |
 | Actual-board analysis | Literal native relationships, complete native CAD accounting, duplicate groups, binding observations, coordinate patterns and source alignment are computed. Independent whole-board causal diagnosis remains incomplete. |
-| Actionable findings / geometry | Findings and exact native work are available in the main navigation. Native ROI/local-window rectangles and exact source matches are shown in separate frames. Qualified native/source overlays and owned-pad repair geometry missing. |
-| Repair Review | Individual accepted/rejected scalar trials, exact before/after and scope, stale checks and dependency closure. Operator supplies intended values/evidence; automatic supported family repair derivation and binding updates missing. |
+| Actionable findings / geometry | Findings and exact native work are available in the main navigation. Native ROI/local-window rectangles and exact source matches are shown in separate frames. Explicit source-owned PCB pad centers appear alongside native frames. Full geometry depends on supported source shapes; qualified native/source overlays and owned-pad repair geometry remain missing. |
+| Repair Review | Individual accepted/rejected scalar trials, exact before/after and scope, source/mapping/evidence context invalidation and dependency closure. Operator supplies intended values/evidence; automatic supported family repair derivation and binding updates missing. |
 | Native output | Accepted changes produce complete copied native tree, exact receipts, asset hashes, manifest, accounting/work exports, checklist and reopenable project. Explicitly qualification-only. No complete-inspection-repair claim. |
 | Whole-board work | Native CAD/native-only coverage plus actual shared Master/window/algorithm queue. Source-bound component and shared-window notes persist. Review observations do not establish taught/verified status. No automatic approved population or machine verification. |
 | Project history | Original bytes, mappings, decisions, exact candidate requests/hash receipts, notes and attachments restore after source verification and recomputation. Earlier candidate bytes stay in their downloaded revisions; sources do not silently retarget old decisions. |
@@ -53,3 +53,11 @@ BOM/stage exclusions remain provisional until approved. New layouts are not taug
 KiCad CLI (version-specific): https://docs.kicad.org/9.0/en/cli/cli.html
 Altium footprint center/reference distinction: https://www.altium.com/documentation/knowledge-base/altium-designer/calculate-component-pick-and-place-center-of-a-footprint
 Gerber component-information extension: https://www.ucamco.com/en/gerber/gerber-x3
+
+## Engineering intake checkpoint
+
+The primary progression is Import → Review → Export, with specialist screens retained. Header candidates are shown for CSV metadata preambles. Legacy Windows-1252 and recovery of malformed quotes in a final Description field require explicit selection; defaults refuse those inputs. Recovery never rewrites original bytes or other columns.
+
+Gerber holds identify the source line, command, offending token and declared capacity. A width-only interpretation hypothesis preserves declared decimals; it neither selects an override nor assumes missing interpolation. Source-to-source median-translation diagnostics separate fit and held-out references. These are unqualified origin hypotheses, never native transforms or confirmed local defects.
+
+Candidate transport now includes source reconciliation and source geometry evidence beside the native engineering ZIP and saved project. Baseline evidence remains explicitly baseline evidence. Generation receipts do not claim a browser download was saved; actual disk download/reopen is a separate evaluation check.

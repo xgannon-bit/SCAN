@@ -1,0 +1,8 @@
+"use client";
+import { Button } from "@/components/ui/button";
+import { useScanSession } from "./ScanSession";
+import { downloadJson } from "@/lib/scan/review-session";
+export function LayoutReview() {
+  const { layout } = useScanSession();
+  return <section className="scan-panel scan-panel-body"><h2>Optional source-owned layout</h2><p>Use ACCEL ASCII .PCB when pad ownership or placement origins need evidence. Ownership comes from explicit source definitions; no Gerber or native binding is inferred.</p><label className="scan-field">Source layout (.pcb)<input type="file" accept=".pcb" disabled={layout.busy} onChange={event => layout.changeFile(event.target.files?.[0] ?? null)} /></label><p>{layout.file?.name ?? "No source layout selected"}</p><Button disabled={!layout.file || layout.busy} onClick={() => void layout.run()}>{layout.busy ? "Reading source layout…" : "Read source layout"}</Button>{layout.error && <p role="alert">{layout.error}</p>}{layout.result && <><p role="status">{layout.result.placements.length} source placements · {layout.result.placements.filter(item => item.ownedPadCentersAvailable).length} with owned pad centers · {layout.result.placements.filter(item => item.geometryAvailable).length} with supported full pad geometry. Status: {layout.result.status}.</p><p>Side, module and registration to Eagle remain unqualified. An available pad center does not qualify its shape, contact region or inspection binding.</p>{layout.result.holds.map((hold, index) => <p key={index}>{hold.code}: {hold.sourcePath}</p>)}<Button variant="outline" onClick={() => downloadJson(layout.result, "source-layout-evidence.json")}>Download source layout evidence</Button></>}</section>;
+}

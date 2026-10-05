@@ -1,4 +1,6 @@
 export type PlacementConfig = {
+  csvRecovery?: boolean;
+  encoding?: "utf-8" | "windows-1252";
   startRow: number;
   columns: Record<string, number>;
   module: string;
@@ -12,11 +14,13 @@ export type PlacementConfig = {
 export type PlacementPreview = {
   status: "success";
   artifactType: "scan.placement-preview";
+  interpretationWarnings?: string[];
   sourceSha256: string;
   sheets: { index: number; name: string }[];
   sheetIndex: number;
   rowCount: number;
   columnCount: number;
+  headerCandidates?: { sourceRow: number; values: (string | number | boolean | null)[] }[];
   preview: (string | number | boolean | null)[][];
 };
 
@@ -24,6 +28,7 @@ export type PlacementResult = {
   normalizerVersion?: string; delimiter?: string; interpretationSha256?: string;
   status: "success" | "blocked";
   artifactType: "scan.normalized-placements";
+  interpretationWarnings?: string[];
   sourceSha256: string;
   schemaVersion: "1";
   sheetIndex: number;

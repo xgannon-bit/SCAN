@@ -1,6 +1,7 @@
 export type GerberConfig = { formatOverride: string | null; assumeLinear: boolean };
 export type GerberObject = { instance_id: string; operation: "flash" | "draw"; aperture_d_code: number; polarity: "dark" | "clear"; start_x: string | null; start_y: string | null; end_x: string; end_y: string };
 export type GerberResult = {
+  diagnostics?: { reason: string; commandNumber: number; command: string; characterOffset: number; line: number; units: string; token?: string; expectedWidth?: number; observedWidth?: number; nextAction: string; interpretationHypothesis?: { format: string; basis: string; qualification: string; initialInterpolation: string } | null }[];
   status: "success" | "blocked" | "unsupported"; source_sha256: string; source_size: number; adapter_version: string;
   units: "mm" | "in" | "unknown"; coordinate_format: { x_integer: number; x_decimal: number; y_integer: number; y_decimal: number } | null;
   declared_coordinate_format: GerberResult["coordinate_format"];

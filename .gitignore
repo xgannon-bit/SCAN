@@ -9,6 +9,7 @@ __pycache__/
 # Build, editor and dependency output
 node_modules/
 .next/
+.next-evaluation/
 out/
 dist/
 build/

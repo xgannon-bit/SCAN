@@ -90,13 +90,16 @@ class GerberResult:
     interpretation_overrides: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
     geometry_complete: bool = False
+    diagnostics: tuple[dict, ...] = ()
 
     def to_dict(self) -> dict:
         return asdict(self)
 
 
 class _Blocked(Exception):
-    pass
+    def __init__(self, message, **details):
+        super().__init__(message)
+        self.details = details
 
 
 FS_RE = re.compile(r"^FS([LT])([AI])X([0-9])([0-9])Y([0-9])([0-9])$")
@@ -154,7 +157,7 @@ def _coord(token: str, integer: int, decimal: int, zero_mode: str, limits: Gerbe
         raise _Blocked("coordinate token is malformed")
     width = integer + decimal
     if len(digits) > width:
-        raise _Blocked("coordinate token exceeds declared FS width")
+        raise _Blocked("coordinate token exceeds declared FS width", token=token, expectedWidth=width, observedWidth=len(digits), decimalPlaces=decimal)
     if zero_mode == "L":
         digits = digits.rjust(width, "0")
     elif zero_mode == "T":
@@ -258,8 +261,31 @@ def parse_gerber(
         return CoordinateFormat(zero, notation, int(xi), int(xd), int(yi), int(yd))
 
     parse_reached_end = False
+    diagnostics = []; command_index = 0; source_command = ''; source_offset = 0; search_offset = 0
+    def diagnostic(reason, details=None):
+        if len(diagnostics) >= 20: return
+        recovery = None
+        if details and details.get('observedWidth') and fmt and fmt.zero_omission == 'L' and fmt.notation == 'A':
+            # Widen capacity only. Decimal precision remains the source's stated
+            # value; this is an interpretation to review, never proof of scale.
+            xi = max(fmt.x_integer, details['observedWidth'] - fmt.x_decimal)
+            yi = max(fmt.y_integer, details['observedWidth'] - fmt.y_decimal)
+            if xi <= 6 and yi <= 6:
+                recovery = {'format': f'FSLAX{xi}{fmt.x_decimal}Y{yi}{fmt.y_decimal}',
+                            'basis': 'Minimum symmetric integer capacity for the observed token, retaining declared decimal precision under leading-zero omission.',
+                            'qualification': 'hypothesis-only', 'initialInterpolation': 'unchanged; missing G01 remains held'}
+        diagnostics.append({'reason': reason, 'commandNumber': command_index, 'command': source_command[:512],
+                            'characterOffset': source_offset, 'line': text.count('\n', 0, source_offset) + 1,
+                            'units': units, 'initialLinearAssumed': assume_linear, 'linearInterpolationEstablished': linear,
+                            'declaredFormat': asdict(declared) if declared else None, 'effectiveFormat': asdict(fmt) if fmt else None,
+                            **(details or {}), 'interpretationHypothesis': recovery,
+                            'nextAction': 'Confirm decimal precision and interpolation with exporter metadata or independently registered source geometry. Review an explicit interpretation below; parsing alone does not qualify geometry. Other native/BOM work may continue.'})
     try:
-        for extended, command in _commands(text, limits):
+        for command_index, (extended, command) in enumerate(_commands(text, limits), 1):
+            source_command = command
+            found = text.find(command, search_offset)
+            source_offset = found if found >= 0 else search_offset
+            search_offset = source_offset + len(command)
             if eof:
                 blocked.append("commands appear after M02 end-of-file"); continue
             if extended:
@@ -388,7 +414,9 @@ def parse_gerber(
             if aperture is None: blocked.append("drawing operation has no selected aperture"); x, y = nx, ny; continue
             if aperture not in apertures: blocked.append(f"selected aperture D{aperture} is undefined"); x, y = nx, ny; continue
             if op == 1 and (x is None or y is None): blocked.append("D01 draw has no prior current point"); x, y = nx, ny; continue
-            if op == 1 and not linear: blocked.append('D01 draw requires explicit G01; initial interpolation is unspecified'); x, y = nx, ny; continue
+            if op == 1 and not linear:
+                reason = 'D01 draw requires explicit G01; initial interpolation is unspecified'
+                blocked.append(reason); diagnostic(reason); x, y = nx, ny; continue
             if op == 1 and apertures[aperture].template != 'C': unsupported.add('NON_CIRCULAR_APERTURE_DRAW'); x, y = nx, ny; continue
             object_id += 1; base_x, base_y = (x, y) if op == 1 else (None, None)
             target = objects if sr is None else sr_objects
@@ -397,7 +425,7 @@ def parse_gerber(
             x, y = nx, ny; supported.add("D01" if op == 1 else "D03")
         parse_reached_end = True
     except _Blocked as exc:
-        blocked.append(str(exc))
+        blocked.append(str(exc)); diagnostic(str(exc), exc.details)
 
     # An early failure leaves subsequent commands unassessed. It cannot establish
     # that a declaration or EOF command is absent from the complete source.
@@ -412,7 +440,7 @@ def parse_gerber(
         if after.st_size != before.st_size or sha256(fresh).hexdigest() != digest: blocked.append("source Gerber changed during parsing")
     except OSError: blocked.append('source Gerber changed during parsing')
     status: Status = "blocked" if blocked else "unsupported" if unsupported else "success"
-    result = GerberResult(status, digest, len(data), "0.2", units, fmt, "gerber-source-native", _attrs(file_attrs), tuple(apertures[k] for k in sorted(apertures)), tuple(objects) if status == 'success' else (), tuple(repeats), tuple(sorted(supported)), tuple(sorted(unsupported)), tuple(dict.fromkeys(blocked)), declared, tuple(overrides), tuple(sorted(warnings)), status == 'success')
+    result = GerberResult(status, digest, len(data), "0.2", units, fmt, "gerber-source-native", _attrs(file_attrs), tuple(apertures[k] for k in sorted(apertures)), tuple(objects) if status == 'success' else (), tuple(repeats), tuple(sorted(supported)), tuple(sorted(unsupported)), tuple(dict.fromkeys(blocked)), declared, tuple(overrides), tuple(sorted(warnings)), status == 'success', tuple(diagnostics))
     if len(json.dumps(result.to_dict(), ensure_ascii=True)) > 16_000_000:
         return _empty('blocked', digest, len(data), 'serialized Gerber output exceeds 16 MB limit')
     return result

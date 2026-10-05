@@ -41,7 +41,7 @@ export function GerberWorkspace() {
   const width = bounds.width / zoom, height = bounds.height / zoom;
   const vx = bounds.x + (bounds.width - width) / 2 + panX * bounds.width / 100;
   const vy = -bounds.y - bounds.height + (bounds.height - height) / 2 + panY * bounds.height / 100;
-  if (!layer) return <section className="scan-panel scan-panel-body"><h2>Gerber alignment</h2><p>Read a supported Gerber layer in Source intake to open the board view.</p><Link href="/intake#gerber-intake" className={buttonVariants({ variant: "outline" })}>Add Gerber layer</Link></section>;
+  if (!layer) return <section className="scan-panel scan-panel-body"><h2>Gerber alignment</h2><p>{g.file ? `The loaded Gerber ${g.file.name} needs interpretation review: ${g.result?.blocked_reasons.join("; ") || g.error || "parse pending"}. Your source is retained; native and BOM work can continue.` : "Read a supported Gerber layer in Source intake to open the board view."}</p><Link href="/intake#gerber-intake" className={buttonVariants({ variant: "outline" })}>{g.file ? "Review loaded Gerber diagnostics" : "Add Gerber layer"}</Link></section>;
   return <section className="scan-panel"><div className="scan-panel-heading"><h2>Gerber and placement alignment</h2></div><div className="scan-panel-body scan-content-stack">
     <p>{layer.objects.length} source objects · physical coordinates in millimeters · gray: Gerber · orange: transformed CAD origins. Click a pad to record its center for the active control point.</p>
     <svg role="img" aria-labelledby={titleId} viewBox={`${vx} ${vy} ${width} ${height}`} style={{ width: "100%", height: 480, background: "#101c2c", borderRadius: 8 }}>

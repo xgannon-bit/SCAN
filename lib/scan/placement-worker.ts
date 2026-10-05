@@ -55,7 +55,7 @@ export async function placementWorker(bytes: Buffer, control: Record<string, unk
         try {
           if (code !== 0 && code !== 2) throw new Error();
           const response = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-          if (response.protocolVersion !== "1" || !["success", "blocked", ...(module === "geometry_cli" ? ["unsupported"] : [])].includes(response.result?.status)) throw new Error();
+          if (response.protocolVersion !== "1" || !["success", "blocked", ...(control.action === "layout" ? ["partial", "unsupported"] : []), ...(module === "geometry_cli" ? ["unsupported"] : [])].includes(response.result?.status)) throw new Error();
           resolve(response.result);
         } catch { reject(new Error("Local worker returned an invalid result. No file was changed.")); }
       });

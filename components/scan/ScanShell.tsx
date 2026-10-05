@@ -34,7 +34,7 @@ export function ScanShell({ children }: { children: React.ReactNode }) {
       <nav className="scan-nav" aria-label="SCAN screens">
         {screens.map(screen => <Link key={screen.href} href={screen.href} className={`scan-nav-item ${pathname === screen.href ? "active" : ""}`} aria-current={pathname === screen.href ? "page" : undefined}>{screen.label}</Link>)}
       </nav>
-      <div className="scan-sidebar-foot"><span className="scan-status-dot" aria-hidden="true" /><div><strong>Local engineering alpha</strong><span>Shared session on this laptop</span></div></div>
+      <div className="scan-sidebar-foot"><span className="scan-status-dot" aria-hidden="true" /><div><strong>Local engineering alpha</strong><span>Local tab; save to retain work</span></div></div>
     </aside>
     <main className="scan-main" id="scan-content" tabIndex={-1}>
       <header className="scan-header">
@@ -50,13 +50,11 @@ export function ScanShell({ children }: { children: React.ReactNode }) {
       </header>
       <div className="scan-session-strip" aria-label="Current source"><strong>{file?.name ?? archiveFile?.name ?? "No source loaded"}</strong><span>{file ? stage : archiveBusy ? "Processing archive" : archiveReview ? "Archive integrity verified; native preparation held" : archiveFile ? "Archive selected" : stage}</span></div>
       <div className="scan-safety-banner" role="status" aria-label="Native capability status"><strong>Offline evaluation — machine qualification pending.</strong><span>{gerber.alignment?.status === "success" ? "CAD/Gerber control checks passed. Native job construction and Eagle/Athena compatibility remain required." : "Review CAD/Gerber alignment, native job construction and Eagle/Athena compatibility before machine use."}</span></div>
-      <section className="scan-workflow" aria-label="SCAN workflow">
-        <Link href="/intake" className={`scan-workflow-step ${pathname === "/intake" ? "current" : ""}`}><span>01</span><strong>Source intake</strong><small>{preview ? "Read" : "Start here"}</small></Link>
-        <Link href="/findings" className={`scan-workflow-step ${pathname === "/findings" ? "current" : ""}`}><span>02</span><strong>Source review</strong><small>{result ? result.status === "success" ? "Parsed" : "Needs attention" : "Pending"}</small></Link>
-        <Link href="/workspace" className={`scan-workflow-step ${pathname === "/workspace" ? "current" : ""}`}><span>03</span><strong>Workspace</strong><small>{result ? "Coordinates" : "Pending"}</small></Link>
-        <Link href="/intake#archive-intake" className="scan-workflow-step"><span>04</span><strong>Archive preflight</strong><small>{archiveReview ? "Bytes verified" : "Optional existing job"}</small></Link>
-        <Link href="/handoff" className={`scan-workflow-step ${pathname === "/handoff" ? "current" : ""}`}><span>05</span><strong>Review handoff</strong><small>Accounting and machine checks</small></Link>
-      </section>
+      <nav className="scan-workflow" aria-label="Import Review Export">
+        <Link href="/intake" className={`scan-workflow-step ${pathname === "/intake" ? "current" : ""}`}><span>01</span><strong>Import</strong><small>Job copy and useful source files</small></Link>
+        <Link href="/findings" className={`scan-workflow-step ${["/findings", "/workspace", "/repair"].includes(pathname) ? "current" : ""}`}><span>02</span><strong>Review</strong><small>Source issues, geometry and exact proposals</small></Link>
+        <Link href="/handoff" className={`scan-workflow-step ${pathname === "/handoff" ? "current" : ""}`}><span>03</span><strong>Export</strong><small>Project, handoff or qualification candidate</small></Link>
+      </nav>
       <ReviewControls />
       {children}
       <footer className="scan-session-note">Unsaved work stays in this tab. Save project before refreshing or closing to retain native sources, mappings, repair decisions, candidate revision receipts and work observations.</footer>
