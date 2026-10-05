@@ -1,7 +1,19 @@
+export type NativeCoordinateComparison = {
+  id: string; partSourcePath: string; groupId: string | null;
+  relation: string; state: "unavailable" | "numerically-equal" | "numeric-difference";
+  deltaXY: string[] | null; unavailableReason: string | null;
+  left: { sourcePath: string; fields: string[]; literals: string[][] };
+  right: { sourcePath: string | null; fields: string[]; literals: string[][] | null };
+  unitsAndCommonFrameQualified: false; repairEligibility: "unqualified";
+};
+
 export type NativeAccounting = {
   artifactType: "scan.native-accounting"; schemaVersion: "1"; analyzerVersion: string;
   status: "recorded" | "unavailable" | "blocked"; code: string; reason?: string;
   accountingComplete: boolean; interpretation?: string; enableLiteralInterpretation?: string;
+  coordinateComparisons?: NativeCoordinateComparison[];
+  coordinatePatterns?: { id: string; moduleLiteral: string; relation: string; deltaXY: string[];
+    affectedRowIds: string[]; referenceLiterals: string[]; partSourcePaths: string[]; interpretation: string; repairEligibility: "unqualified" }[];
   sourceContext?: { archiveSha256: string; snapshotId: string; jobMember: string; jobSha256: string };
   componentCoverage: { id: string; sourcePath: string; recordId: string; groupId: string | null; moduleLiteral: string | null; referenceLiteral: string | null; sourceRepresentation: string; nativeCorrespondence: string; nativePreparation: string; existingTeaching: string; enabledState: string; verification: string; release: string; exclusion: string }[];
   nativeInstances: { id: string; sourcePath: string; groupId: string | null; coverageRowId?: string | null; nativeIdLiterals: string[]; enableLiterals: string[]; enableObservation?: string; enabledMeaning: string }[];

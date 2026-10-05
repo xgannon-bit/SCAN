@@ -5,6 +5,7 @@ They are not a verified population list. Correspondence groups avoid expanding a
 many-to-many CAD/part match into a quadratic collection of apparent components.
 """
 from collections import Counter, defaultdict
+from decimal import Decimal, localcontext
 from hashlib import sha256
 import json
 import re
@@ -56,9 +57,9 @@ def _scope(record):
 def _failure(status, code, reason):
     return {
         'artifactType': 'scan.native-accounting', 'schemaVersion': '1',
-        'analyzerVersion': 'native-literal-accounting-1', 'status': status,
+        'analyzerVersion': 'native-literal-accounting-2', 'status': status,
         'code': code, 'reason': reason, 'accountingComplete': False,
-        'findings': [], 'componentCoverage': [], 'nativeInstances': [],
+        'findings': [], 'componentCoverage': [], 'nativeInstances': [], 'coordinateComparisons': [], 'coordinatePatterns': [],
         'correspondenceGroups': [], 'moduleGroups': [], 'remainingWork': [], 'sharedBlockers': [],
         'counts': None, 'changes': [], 'machineExportAllowed': False,
         'nativeEditsApplied': False,
@@ -125,12 +126,12 @@ def analyze_native(documents, source_context):
 
         result = {
             'artifactType': 'scan.native-accounting', 'schemaVersion': '1',
-            'analyzerVersion': 'native-literal-accounting-1', 'status': 'recorded',
+            'analyzerVersion': 'native-literal-accounting-2', 'status': 'recorded',
             'code': 'LITERAL_ACCOUNTING_RECORDED', 'accountingComplete': True,
             'sourceContext': context, 'readerProfile': PROFILE,
             'interpretation': 'Selected-job CAD rows and native part instances; exact source-string correspondence only. This is not qualified population, teaching, geometry or repair eligibility.',
             'enableLiteralInterpretation': 'Histogram values count raw ENABLE scalar occurrences, including repeated values; they are not counts of enabled inspections.',
-            'findings': [], 'componentCoverage': [], 'nativeInstances': [],
+            'findings': [], 'componentCoverage': [], 'nativeInstances': [], 'coordinateComparisons': [], 'coordinatePatterns': [],
             'correspondenceGroups': [], 'moduleGroups': [], 'remainingWork': [], 'sharedBlockers': [],
             'changes': [], 'machineExportAllowed': False, 'nativeEditsApplied': False,
         }
@@ -259,6 +260,56 @@ def analyze_native(documents, source_context):
                         'Reconcile source population and native placement identity before assigning missing preparation or exclusion.', group_id)
             append('correspondenceGroups', group)
 
+        # Numeric field comparisons are triage observations, not transformations.
+        # Never compare to external CAD or declare that the native frames agree.
+        coordinate_counts = Counter()
+        offset_groups = defaultdict(list)
+        for part in parts:
+            key = _scope(part)
+            candidates = cad_scopes.get(key, []) if key is not None else []
+            cad_state = ('unusable-module-reference' if key is None else
+                         'unmatched-cad' if not candidates else
+                         'ambiguous-cad-part-correspondence' if len(candidates) != 1 or len(part_scopes[key]) != 1 else None)
+            pairs = (
+                ('roi-minus-placement-center', part, ('Roi/cx', 'Roi/cy'), part, ('CenterPosX', 'CenterPosY'), None),
+                ('placement-center-minus-native-cad', part, ('CenterPosX', 'CenterPosY'), candidates[0] if cad_state is None else None, ('X', 'Y'), cad_state),
+                ('roi-minus-native-cad', part, ('Roi/cx', 'Roi/cy'), candidates[0] if cad_state is None else None, ('X', 'Y'), cad_state),
+            )
+            for relation, left, left_fields, right, right_fields, unavailable in pairs:
+                left_point = _coordinate_point(left, left_fields)
+                right_point = _coordinate_point(right, right_fields) if right is not None else None
+                delta = _coordinate_delta(left_point, right_point) if left_point is not None and right_point is not None else None
+                state = 'unavailable' if delta is None else 'numerically-equal' if delta == ['0', '0'] else 'numeric-difference'
+                coordinate_counts[state] += 1
+                comparison_id = identity('coordinate-comparison', [part['sourcePath'], relation])
+                append('coordinateComparisons', {
+                    'id': comparison_id, 'partSourcePath': part['sourcePath'],
+                    'groupId': identity('scope', key) if key is not None else None,
+                    'relation': relation, 'state': state, 'deltaXY': delta,
+                    'unavailableReason': (unavailable or 'missing-repeated-or-unsupported-coordinate') if delta is None else None,
+                    'left': {'sourcePath': left['sourcePath'], 'fields': list(left_fields), 'literals': [left['rawFields'].get(f, []) for f in left_fields]},
+                    'right': {'sourcePath': right['sourcePath'] if right is not None else None, 'fields': list(right_fields), 'literals': [right['rawFields'].get(f, []) for f in right_fields] if right is not None else None},
+                    'unitsAndCommonFrameQualified': False, 'repairEligibility': 'unqualified',
+                })
+                if state != 'numeric-difference':
+                    continue
+                # Without a qualified common frame, do not manufacture a defect
+                # or a separate correction task from each numeric difference.
+                if key is not None and len(modules.get(key[0], [])) == 1 and _scalar(part, 'ID') is not None:
+                    offset_groups[(key[0], relation, *delta)].append((part, key))
+        for offset, members in offset_groups.items():
+            references = {key[1] for _, key in members}
+            if len(references) < 2:
+                continue
+            module, relation, dx, dy = offset
+            affected_rows = list(dict.fromkeys(row for _, key in members for row in group_rows[key]))
+            append('coordinatePatterns', {'id': identity('coordinate-pattern', offset),
+                'moduleLiteral': module, 'relation': relation, 'deltaXY': [dx, dy],
+                'affectedRowIds': affected_rows, 'referenceLiterals': sorted(references),
+                'partSourcePaths': [part['sourcePath'] for part, _ in members],
+                'interpretation': 'Repeated numeric pattern only; not a proven board/module transform, physical defect or permission for a bulk correction.',
+                'repairEligibility': 'unqualified'})
+
         # ID comparisons retain known structural containment. Flat pad scope
         # fields are compared literally, without declaring native uniqueness.
         id_groups = defaultdict(list)
@@ -315,8 +366,8 @@ def analyze_native(documents, source_context):
 
         all_rows = [row['id'] for row in result['componentCoverage']]
         for code, reason, action in (
-            ('NATIVE_SEMANTICS_UNQUALIFIED', 'Units, frames, side codes, enablement, teaching and shared-model effects are unqualified.',
-             'Qualify the exact Eagle build and the chosen local edit using controlled before/after evidence.'),
+            ('NATIVE_SEMANTICS_UNQUALIFIED', 'Units, frames, side codes, enablement, teaching and shared-model effects are unqualified. Numeric coordinate differences are evidence, not individual defects.',
+             'Establish the ROI, placement-center and native CAD coordinate frames and legitimate component origins against supported independent evidence before proposing geometry corrections. Keep CAD and teaching unchanged while resolving this shared prerequisite; qualify the exact Eagle build separately.'),
             ('NATIVE_REQUIRED_ASSETS_UNRESOLVED', 'Preserving files and literal references does not establish required model/image dependency completeness.',
              'Verify required job companions and any external dependencies through the supported Eagle workflow.'),
             ('EAGLE_CANDIDATE_UNVERIFIED', 'No changed candidate or Eagle open/save/reopen evidence exists in this structural report.',
@@ -335,6 +386,7 @@ def analyze_native(documents, source_context):
             'nativeOnlyRows': sum(row['sourceRepresentation'] == 'native-part-only' for row in result['componentCoverage']),
             'literalCorrespondence': dict(coverage_count), 'enableLiteralObservations': dict(enable_counts),
             'enableLiteralHistogram': dict(enable_literals),
+            'coordinateComparisons': dict(coordinate_counts),
             'findings': len(result['findings']), 'sharedBlockers': len(result['sharedBlockers']),
             'intendedComponents': None, 'nativeEditsApplied': 0,
             'qualifiedPreparedComponents': None, 'qualifiedEnabledComponents': None,
@@ -354,3 +406,30 @@ def _module_scope_index(scope_keys):
     for key in scope_keys:
         index[key[0]].append(key)
     return index
+
+
+def _coordinate_point(record, names):
+    point = []
+    for name in names:
+        value = _scalar(record, name)
+        if value is None:
+            return None
+        value = value.strip()
+        if len(value) > 128 or not _NUMBER.fullmatch(value):
+            return None
+        if 'e' in value.lower() and abs(int(value.lower().split('e')[1])) > 128:
+            return None
+        number = Decimal(value)
+        # Bound both exponent and coefficient before arithmetic/formatting.
+        # This is a resource limit, not a permissible physical coordinate range.
+        if not number.is_finite() or abs(number.as_tuple().exponent) > 128 or len(number.as_tuple().digits) > 128:
+            return None
+        point.append(number)
+    return point
+
+
+def _coordinate_delta(left, right):
+    with localcontext() as context:
+        context.prec = 520  # Enough for both bounded coefficients/exponents, exactly.
+        values = [a - b for a, b in zip(left, right)]
+        return ['0' if value == 0 else format(value.normalize(), 'f') for value in values]

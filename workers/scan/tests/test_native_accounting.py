@@ -192,7 +192,8 @@ class NativeAccountingTests(unittest.TestCase):
         self.assertEqual(len(result['componentCoverage']), 250)
         self.assertEqual(len(result['nativeInstances']), 250)
         self.assertEqual(len(result['correspondenceGroups']), 1)
-        self.assertLess(len(json.dumps(result)), 350_000)
+        self.assertEqual(len(result['coordinateComparisons']), 750)
+        self.assertLess(len(json.dumps(result)), 800_000)
 
     def test_ids_bind_source_hashes_snapshot_member_and_exact_paths(self):
         first = analyze_native(normal(), CONTEXT)

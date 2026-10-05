@@ -71,6 +71,11 @@ export function NativeAccounting() {
   const [notice, setNotice] = useState("");
   const groups = useMemo(() => new Map(report?.correspondenceGroups.map(g => [g.id, g])), [report]);
   const instances = useMemo(() => new Map(report?.nativeInstances.map(p => [p.id, p])), [report]);
+  const coordinateChecks = useMemo(() => {
+    const index = new Map<string, NonNullable<typeof report>["coordinateComparisons"]>();
+    for (const check of report?.coordinateComparisons ?? []) index.set(check.partSourcePath, [...(index.get(check.partSourcePath) ?? []), check]);
+    return index;
+  }, [report]);
   const ungrouped = report?.findings.filter(f => !f.groupId && `${f.message} ${f.sourcePaths.join(" ")}`.toLowerCase().includes(filter.toLowerCase())) ?? [];
   if (!report) return bindings ? <NativeBindingDetails report={bindings} /> : null;
   const matches = report.componentCoverage.filter(row => `${row.moduleLiteral ?? ""} ${row.referenceLiteral ?? ""} ${row.sourcePath} ${row.nativeCorrespondence}`.toLowerCase().includes(filter.toLowerCase()));
@@ -95,6 +100,17 @@ export function NativeAccounting() {
       {notice && <p role="status">{notice}</p>}
       <h3>Resolve shared issues once</h3>
       {report.sharedBlockers.map(b => <details key={b.id}><summary>{b.reason} ({b.affectedRowIds.length} accounting rows)</summary><p>{report.remainingWork.find(w => w.blockerId === b.id)?.nextAction}</p><p>Scope: {b.scope}{b.moduleLiteral ? ` · module literal ${b.moduleLiteral}` : ""}</p></details>)}
+      {!!report.coordinateComparisons?.length && <details><summary>Whole-board coordinate evidence</summary>
+        <p>{report.coordinateComparisons.length} numeric comparisons. These retain raw fields and unavailable comparisons; they do not count as diagnosed defects or completed preparation.</p>
+        <p>Resolve the shared coordinate-frame prerequisite before interpreting a numeric offset as a physical movement. Do not move CAD to hide misplaced inspections.</p>
+        <p>{report.coordinatePatterns?.length ?? 0} repeated nonzero patterns across distinct reference literals within one uniquely identified module. Exact comparisons use no tolerance or inferred units.</p>
+        {report.coordinatePatterns?.slice(0, 50).map(pattern => <details key={pattern.id}>
+          <summary>Module {pattern.moduleLiteral} · {pattern.relation} · X={pattern.deltaXY[0]}, Y={pattern.deltaXY[1]} · {pattern.referenceLiterals.length} references</summary>
+          <p>{pattern.interpretation}</p><p className="break-words">References: {pattern.referenceLiterals.slice(0, 100).join(", ")}</p>
+          {pattern.referenceLiterals.length > 100 && <p>Showing 100 references; download accounting JSON for all affected records.</p>}
+        </details>)}
+        {(report.coordinatePatterns?.length ?? 0) > 50 && <p>Showing 50 patterns; download accounting JSON for all patterns.</p>}
+      </details>}
       <label className="scan-field">Find native component or source path<input value={filter} onChange={event => setFilter(event.target.value)} /></label>
       <p>{matches.length} accounting rows match. Showing {Math.min(100, matches.length)}; exports contain all rows.</p>
       {matches.slice(0, 100).map(row => {
@@ -103,6 +119,15 @@ export function NativeAccounting() {
         return <details key={row.id}><summary>{row.moduleLiteral ?? "Unknown module"} / {row.referenceLiteral ?? "Unknown reference"} · {row.nativeCorrespondence}</summary>
           <p>{row.sourcePath}</p><p>Native IDs: {parts.slice(0, 50).flatMap(p => p.nativeIdLiterals).join(", ") || "None established"}</p><p>Raw ENABLE: {parts.slice(0, 50).map(p => p.enableLiterals.join(" | ")).join(" ; ") || "Missing"}</p>{parts.length > 50 && <p>Showing 50 of {parts.length} linked native instances. Download accounting for every exact member.</p>}
           <p>Prepared: {row.nativePreparation} · Existing teaching: {row.existingTeaching} · Exclusion: {row.exclusion} · Verification: {row.verification} · Release: {row.release}</p>
+          <details><summary>Placement coordinate evidence</summary>
+            <p>These compare numeric fields inside the selected job. Units, coordinate frames and component origins remain unqualified. Equal numbers do not prove correct geometry; differences do not authorize corrections.</p>
+            {parts.slice(0, 50).flatMap(part => coordinateChecks.get(part.sourcePath) ?? []).map(check => <div key={check.id}>
+              <p>{check.relation}: {check.state}{check.deltaXY ? ` · X=${check.deltaXY[0]}, Y=${check.deltaXY[1]}` : ` · ${check.unavailableReason}`}</p>
+              <p className="break-words">Left: {check.left.sourcePath} · {check.left.fields.join(", ")} · {JSON.stringify(check.left.literals)}</p>
+              <p className="break-words">Right: {check.right.sourcePath ?? "No unique correspondence"} · {check.right.fields.join(", ")} · {JSON.stringify(check.right.literals)}</p>
+            </div>)}
+            {parts.length > 50 && <p>Showing coordinate checks for 50 placements; download accounting JSON for all comparisons.</p>}
+          </details>
           {report.findings.filter(f => f.groupId ? f.groupId === row.groupId : f.sourcePaths.includes(row.sourcePath) || parts.some(p => f.sourcePaths.includes(p.sourcePath))).map(f => <div key={f.id}><p>{f.message}</p><p>Next: {report.remainingWork.find(w => w.findingId === f.id)?.nextAction}</p></div>)}
         </details>;
       })}

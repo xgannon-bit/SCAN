@@ -25,6 +25,16 @@ work queue. A report or preserved original is not that result.
   native placement. Duplicate reference groups remain groups, with no automatic
   survivor or enablement decision. Missing, repeated and malformed values remain
   visible. Shared blockers reference the affected rows once.
+- Coordinate triage compares each placement's ROI with its stored placement
+  center, separately from center/ROI versus uniquely corresponding native CAD.
+  Exact decimal differences retain the source paths and raw values. Repeated
+  nonzero offsets across distinct references in one uniquely identified module
+  are grouped as evidence for shared-cause review, not separate defect/repair
+  tasks. One shared frame-qualification prerequisite remains. Ambiguous CAD/part correspondence is not
+  selected, and missing/repeated/unsupported coordinates stay unknown. These
+  comparisons do not establish common frames, physical defects or repair
+  eligibility; no Master-local/window coordinates or external CAD are treated as
+  registered by this check. Legitimate off-center origins must be preserved.
 - CSV and JSON accounting exports, and accounting in the review handoff. Source
   representation, native preparation, teaching, enablement, verification and
   release are separate; unknown states do not count as completed preparation.
