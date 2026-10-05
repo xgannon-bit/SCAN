@@ -20,6 +20,18 @@ returned.draft = draft(returned.selection);
 const gerber = { file: new File(['%MOMM*%\n%FSLAX24Y24*%\nM02*'], 'authored.gbr'), settings: { config: { formatOverride: null, assumeLinear: false }, points: Array.from({ length: 4 }, (_, i) => ({ id: String(i), role: i === 3 ? 'check' : 'fit', cad: ['', ''], gerber: ['', ''], evidence: '' })), scope: { module: 'FICTIONAL', side: 'Top', boardInstance: 'one' }, tolerance: '.1', basis: '', checked: false } };
 const input = { placement, gerber, original, returned, notes, machineVersion: 'Fictional version; no compatibility claim' };
 
+test('supplementary evidence and offline work survive reopen without granting machine authority', async () => {
+  const repair = { request: null, history: [], work: [{ key: 'authored-component', sourceSha256: 'a'.repeat(64), snapshotId: 'authored-snapshot', status: 'machine-work', note: 'Authored unresolved task' }] };
+  const saved = await encodeProject({ ...input, repair, attachments: [{ role: 'BOM', file: new File(['Ref,MPN\nFICTION,AUTHORED\n'], 'authored-bom.csv') }] });
+  const restored = await decodeProject(asFile(saved));
+  assert.deepEqual(restored.record.repair, repair);
+  assert.equal(await restored.attachments[0].file.text(), 'Ref,MPN\nFICTION,AUTHORED\n');
+  const changed = JSON.parse(await saved.text()); changed.attachments[0].source.sha256 = '0'.repeat(64);
+  await assert.rejects(decodeProject(asFile(changed)), /do not match their hash/);
+  const forged = JSON.parse(await saved.text()); forged.repair.work[0].status = 'machine-verified';
+  await assert.rejects(decodeProject(asFile(forged)), /cannot grant machine validation/);
+});
+
 test('whole project preserves all original bytes, role distinctions, mappings, notes and machine version', async () => {
   const saved = await encodeProject(input);
   const restored = await decodeProject(asFile(saved));

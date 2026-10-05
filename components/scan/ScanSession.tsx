@@ -8,6 +8,8 @@ import { useArchiveSession } from "./ArchiveSession";
 import { buildNativeQualification } from "@/lib/scan/native-qualification";
 import { useGerberSession } from "./GerberSession";
 
+import { emptyRepair, type RepairSession } from "@/lib/scan/repair-session";
+
 const initial: PlacementConfig = { startRow: 1, columns: { refdes: 1, mpn: 2, xy: 4, side: 5, rotation: 6, footprint: 7 }, module: "", side: "", units: "unknown", rotationDirection: "unknown", decimalSeparator: ".", pairSeparator: "," };
 
 export function retainSessionNote(notes: ReviewNotes): ReviewNotes {
@@ -15,6 +17,8 @@ export function retainSessionNote(notes: ReviewNotes): ReviewNotes {
 }
 
 function usePlacementSession() {
+  const [attachments, setAttachments] = useState<{ role: "BOM" | "evidence"; file: File }[]>([]);
+  const [repair, setRepair] = useState<RepairSession>(emptyRepair);
   const archive = useArchiveSession();
   const returnedArchive = useArchiveSession();
   const [eagleVersion, updateEagleVersion] = useState("");
@@ -71,7 +75,7 @@ function usePlacementSession() {
   }
   function changeSheet(value: number) { invalidate(); setNotes(retainSessionNote); setSheet(value); setPreview(null); }
   function changeDelimiter(value: string) { invalidate(); setNotes(retainSessionNote); setDelimiter(value); setPreview(null); }
-  function reset() { changeFile(null); changeBaseline(null); gerber.reset(); setEagleVersion(""); setNotes({}); setProjectEvidence(undefined); evidenceSources.current.clear(); }
+  function reset() { changeFile(null); changeBaseline(null); gerber.reset(); setEagleVersion(""); setNotes({}); setProjectEvidence(undefined); setRepair(emptyRepair()); setAttachments([]); evidenceSources.current.clear(); }
   function cancel() {
     revision.current += 1;
     controller.current?.abort(); controller.current = null;
@@ -136,6 +140,16 @@ function usePlacementSession() {
     } catch (failure) { if (current === revision.current) setError(failure instanceof Error ? failure.message : "Review could not be saved. Your current work remains available."); }
   }
 
+  async function buildProjectBlob(repairOverride = repair) {
+    return encodeProject({
+        placement: file ? { file, settings: { config, sheetIndex: sheet, delimiter, validated: !!result, selectedRow, notes } } : null,
+        gerber: gerber.file ? { file: gerber.file, settings: { config: gerber.config, points: gerber.points, scope: gerber.scope, tolerance: gerber.tolerance, basis: gerber.basis, checked: !!gerber.alignment } } : null,
+        original: archive.archiveFile ? { file: archive.archiveFile, selection: archive.selection, draft: archive.archiveDraft } : null,
+        returned: returnedArchive.archiveFile ? { file: returnedArchive.archiveFile, selection: returnedArchive.selection, draft: returnedArchive.archiveDraft } : null,
+        attachments, notes, repair: repairOverride, machineVersion: eagleVersion, ...(projectEvidence ? { evidence: projectEvidence } : {}),
+      });
+  }
+
   async function saveProject() {
     if (busy || archive.archiveBusy || returnedArchive.archiveBusy || gerber.busy || gerber.alignBusy || (!file && !archive.archiveFile && !gerber.file)) return;
     const current = revision.current; const originalRevision = archive.archiveRevision.current;
@@ -143,16 +157,10 @@ function usePlacementSession() {
     const abort = new AbortController(); controller.current?.abort(); controller.current = abort;
     setBusy(true); setError(""); setNotice("");
     try {
-      const output = await encodeProject({
-        placement: file ? { file, settings: { config, sheetIndex: sheet, delimiter, validated: !!result, selectedRow, notes } } : null,
-        gerber: gerber.file ? { file: gerber.file, settings: { config: gerber.config, points: gerber.points, scope: gerber.scope, tolerance: gerber.tolerance, basis: gerber.basis, checked: !!gerber.alignment } } : null,
-        original: archive.archiveFile ? { file: archive.archiveFile, selection: archive.selection, draft: archive.archiveDraft } : null,
-        returned: returnedArchive.archiveFile ? { file: returnedArchive.archiveFile, selection: returnedArchive.selection, draft: returnedArchive.archiveDraft } : null,
-        notes, machineVersion: eagleVersion, ...(projectEvidence ? { evidence: projectEvidence } : {}),
-      });
+      const output = await buildProjectBlob();
       if (current !== revision.current || originalRevision !== archive.archiveRevision.current || returnedRevision !== returnedArchive.archiveRevision.current || geometryRevision !== gerber.revision.current || abort.signal.aborted) return;
       const url = URL.createObjectURL(output); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "scan-project.scan-project.json"; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-      setNotice("Project saved with original sources, archive selections, mappings, notes and machine version. Reopening verifies bytes and recomputes findings and comparisons; native candidate writing remains unavailable.");
+      setNotice("Project saved with original sources, archive selections, mappings, notes and machine version. Reopening verifies bytes and recomputes findings and comparisons; reviewed repair decisions and candidate revision receipts are retained. Repair export always rechecks source and exact scope.");
     } catch (failure) { if (current === revision.current && !abort.signal.aborted) setError(failure instanceof Error ? failure.message : "Project could not be saved. Your current work remains available."); }
     finally { if (controller.current === abort) { controller.current = null; setBusy(false); } }
   }
@@ -191,7 +199,7 @@ function usePlacementSession() {
       // mapping cannot currently be parsed. Derived results are never restored.
       setFile(placement?.source ?? null); setConfig(placement?.record.config ?? initial); setSheet(placement?.record.sheetIndex ?? 0); setDelimiter(placement?.record.delimiter ?? ",");
       setPreview(null); setResult(null); setSelectedRow(null); setNotes(restored.record.notes);
-      changeBaseline(null); updateEagleVersion(restored.record.machineVersion); setProjectEvidence(restored.record.evidence); sourceRestored = true;
+      changeBaseline(null); updateEagleVersion(restored.record.machineVersion); setProjectEvidence(restored.record.evidence); setRepair(restored.record.repair ?? emptyRepair()); setAttachments(restored.attachments ?? []); sourceRestored = true;
       // One archive worker is allowed at a time. Keep the returned file visible
       // while the original is inventoried, without reusing any saved reports.
       if (restored.original) archive.loadArchiveDraft(restored.original);
@@ -230,7 +238,7 @@ function usePlacementSession() {
   }
 
   const stage = busy ? "Processing source" : error ? "Import needs attention" : result ? result.status === "success" ? "Placement parsing complete" : "Placement review needs attention" : preview ? "Mapping needs validation" : file ? "Ready to read" : "No source loaded";
-  return { file, preview, result, config, sheet, delimiter, busy, error, selectedRow, notes, notice, stage, edit, changeFile, changeSheet, changeDelimiter, reset, cancel, run, download, setSelectedRow, editNote, saveReview, saveProject, openReview, projectEvidence, ...archive, changeArchive: changeBaseline, returnedArchive, eagleVersion, setEagleVersion, qualification, gerber };
+  return { attachments, setAttachments, buildProjectBlob, repair, setRepair, file, preview, result, config, sheet, delimiter, busy, error, selectedRow, notes, notice, stage, edit, changeFile, changeSheet, changeDelimiter, reset, cancel, run, download, setSelectedRow, editNote, saveReview, saveProject, openReview, projectEvidence, ...archive, changeArchive: changeBaseline, returnedArchive, eagleVersion, setEagleVersion, qualification, gerber };
 }
 
 const ScanSessionContext = createContext<ReturnType<typeof usePlacementSession> | null>(null);

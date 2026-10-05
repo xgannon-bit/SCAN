@@ -2,6 +2,21 @@
 
 These are product targets, not a declaration of implemented format support.
 
+## Integrated offline evaluation route
+
+See [the evaluation guide](evaluation-guide.md). Repair Review now connects selected-source analysis to exact reviewed scalar proposals, explicit qualification acknowledgement, complete native-copy output and a reopenable project in one download. The local X and disable operations are qualification experiments. Their evidence is operator supplied; the writer verifies source/identity/byte preservation, not engineering validity. Binding writes remain held. This does not complete independent whole-board diagnosis or prove a repaired inspection.
+
+| Requested requirement | Current implementation / remaining gap |
+| --- | --- |
+| Open/resume sources | Native ZIPs and explicit snapshot/Master selection, placement/Gerber mapping and optional hash-verified BOM/evidence attachments persist. BOM parsing/reconciliation missing. |
+| Actual-board analysis | Literal native relationships, complete native CAD accounting, duplicate groups, binding observations, coordinate patterns and source alignment are computed. Independent whole-board causal diagnosis remains incomplete. |
+| Actionable findings / geometry | Findings and exact native work are available in the main navigation. Native ROI/local-window rectangles and exact source matches are shown in separate frames. Qualified native/source overlays and owned-pad repair geometry missing. |
+| Repair Review | Individual accepted/rejected scalar trials, exact before/after and scope, stale checks and dependency closure. Operator supplies intended values/evidence; automatic supported family repair derivation and binding updates missing. |
+| Native output | Accepted changes produce complete copied native tree, exact receipts, asset hashes, manifest, accounting/work exports, checklist and reopenable project. Explicitly qualification-only. No complete-inspection-repair claim. |
+| Whole-board work | Native CAD/native-only coverage plus actual shared Master/window/algorithm queue. Source-bound component and shared-window notes persist. Review observations do not establish taught/verified status. No automatic approved population or machine verification. |
+| Project history | Original bytes, mappings, decisions, exact candidate requests/hash receipts, notes and attachments restore after source verification and recomputation. Earlier candidate bytes stay in their downloaded revisions; sources do not silently retarget old decisions. |
+| Laptop delivery | Existing Windows desktop launcher and integrated real screens; separate synthetic demo; first-use guide and portable Eagle checklist. Machine qualification deferred. |
+
 ## Repair three different things separately
 
 1. Source-format defects: combined X/Y columns, numeric text, explicit unit conversion, coordinate-format declarations and revision inconsistencies.

@@ -104,7 +104,7 @@ test('native-only project restores both archives, explicit temp/main choices, no
   expect(comparison.before.archiveSha256).toBe(sha256(originalBytes));
   expect(comparison.after.archiveSha256).toBe(sha256(returnedBytes));
   expect(comparison.holds).toContainEqual(expect.objectContaining({ code: 'SNAPSHOT_SELECTION_CHANGED' }));
-  await expect(page.getByRole('button', { name: 'Export native candidate', exact: true })).toBeDisabled();
+  await expect(page.getByRole('link', { name: 'Review and export qualification candidate', exact: true })).toHaveAttribute('href', '/repair');
   await nav(page, 'Source intake').click();
   await expect(archiveRegion(page).getByRole('combobox', { name: 'Job snapshot', exact: true })).toHaveValue(originalChoices.jobChoice);
   await expect(archiveRegion(page).getByRole('combobox', { name: 'Master snapshot', exact: true })).toHaveValue(originalChoices.masterChoice);

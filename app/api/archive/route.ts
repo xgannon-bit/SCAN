@@ -3,7 +3,7 @@ import { archiveWorker } from "@/lib/scan/archive-worker";
 import { reserveWorker } from "@/lib/scan/worker-budget";
 
 export const runtime = "nodejs";
-const MAX_BODY = 100_030_000;
+const MAX_BODY = 101_100_000;
 const reply = (message: string, status = 400) => Response.json({ message }, { status, headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
 
 export async function POST(request: Request) {
@@ -31,21 +31,27 @@ export async function POST(request: Request) {
     } finally { clearTimeout(timer); request.signal.removeEventListener("abort", cancel); reader.releaseLock(); }
     if (expired || request.signal.aborted) return reply("Archive upload was interrupted or timed out.", 408);
     const form = await new Response(Buffer.concat(chunks), { headers: { "content-type": request.headers.get("content-type")! } }).formData();
-    const fields = ["file", "action", "expectedArchiveSha256", "selection", "expectedPackageSha256"];
+    const repairAction = String(form.get("action")).startsWith("repair-");
+    const fields = ["file", "action", "expectedArchiveSha256", "selection", "expectedPackageSha256", ...(repairAction ? ["repair"] : [])];
     if ([...form.keys()].length !== fields.length || fields.some(key => form.getAll(key).length !== 1)) return reply("Archive fields are missing, duplicated or unknown.");
     const file = form.get("file");
     if (!(file instanceof File) || !file.size || file.size > 100_000_000 || !file.name.toLowerCase().endsWith(".zip")) return reply("Select a nonempty ZIP no larger than 100 MB.");
     const action = form.get("action"), archiveHash = form.get("expectedArchiveSha256"), selection = form.get("selection"), packageHash = form.get("expectedPackageSha256");
-    if (typeof action !== "string" || !["inventory", "preflight", "download", "reference"].includes(action) || typeof selection !== "string" || selection.length > 8000 || typeof archiveHash !== "string" || typeof packageHash !== "string") return reply("Invalid archive settings.");
+    if (typeof action !== "string" || !["inventory", "preflight", "download", "reference", "repair-review", "repair-export"].includes(action) || typeof selection !== "string" || selection.length > 8000 || typeof archiveHash !== "string" || typeof packageHash !== "string") return reply("Invalid archive settings.");
     const control: Record<string, unknown> = { action };
     if (action === "inventory") {
       if (selection !== "null" || archiveHash !== "" || packageHash !== "") return reply("Inventory does not accept a prior selection or hash.");
     } else {
-      if (!/^[a-f0-9]{64}$/.test(archiveHash) || (["download", "reference"].includes(action) ? !/^[a-f0-9]{64}$/.test(packageHash) : packageHash !== "")) return reply("Review the current archive and snapshot hashes first.");
+      if (!/^[a-f0-9]{64}$/.test(archiveHash) || (["download", "reference", "repair-review", "repair-export"].includes(action) ? !/^[a-f0-9]{64}$/.test(packageHash) : packageHash !== "")) return reply("Review the current archive and snapshot hashes first.");
       let chosen: unknown;
       try { chosen = JSON.parse(selection); } catch { return reply("Invalid snapshot selection."); }
       control.expectedArchiveSha256 = archiveHash; control.selection = chosen;
-      if (["download", "reference"].includes(action)) control.expectedPackageSha256 = packageHash;
+      if (["download", "reference", "repair-review", "repair-export"].includes(action)) control.expectedPackageSha256 = packageHash;
+    }
+    if (repairAction) {
+      const raw = form.get("repair");
+      if (typeof raw !== "string" || raw.length > 1_000_000) return reply("Repair request exceeds its limit.");
+      try { control.repair = JSON.parse(raw); } catch { return reply("Invalid repair request."); }
     }
     const bytes = Buffer.from(await file.arrayBuffer());
     transferred = true;

@@ -1,3 +1,4 @@
+import { validateRepairSession, type RepairSession } from "./repair-session";
 import type { ArchiveInventory, ArchiveReview, ArchiveSelection, SnapshotRole } from "./archive-types";
 import { decodeReview, encodeGerberDraft, encodeReview, validateReviewSession, type GerberDraft, type RestoredGerber, type ReviewNotes, type ReviewSessionFile } from "./review-session";
 
@@ -28,18 +29,21 @@ export type ProjectSessionFile = {
   artifactType: "scan.project-session"; schemaVersion: "1";
   placement: ReviewSessionFile | null; gerber: GerberDraft | null;
   archives: { original: ProjectArchive | null; returned: ProjectArchive | null };
-  notes: ReviewNotes; machineVersion: string; evidence?: ProjectEvidence;
+  notes: ReviewNotes; machineVersion: string; evidence?: ProjectEvidence; repair?: RepairSession;
+  attachments?: { role: "BOM" | "evidence"; source: EmbeddedSource }[];
   machineExportAllowed: false;
 };
 export type ProjectInput = {
+  attachments?: { role: "BOM" | "evidence"; file: File }[];
   placement: { file: File; settings: Parameters<typeof encodeReview>[1] } | null;
   gerber: { file: File; settings: Parameters<typeof encodeGerberDraft>[1] } | null;
   original: { file: File; selection: ArchiveSelection | null; draft: ArchiveDraft } | null;
   returned: { file: File; selection: ArchiveSelection | null; draft: ArchiveDraft } | null;
-  notes: ReviewNotes; machineVersion: string; evidence?: ProjectEvidence;
+  notes: ReviewNotes; machineVersion: string; evidence?: ProjectEvidence; repair?: RepairSession;
 };
 export type RestoredProject = {
   record: ProjectSessionFile;
+  attachments?: { role: "BOM" | "evidence"; file: File }[];
   placement: { record: ReviewSessionFile; source: File } | null;
   gerber?: RestoredGerber;
   original: RestoredArchive | null; returned: RestoredArchive | null;
@@ -122,7 +126,7 @@ function validateEvidence(value: unknown, sources: Set<string>) {
 }
 export function validateProjectSession(value: unknown): ProjectSessionFile {
   const project = object(value);
-  exact(project, ["artifactType", "schemaVersion", "placement", "gerber", "archives", "notes", "machineVersion", "machineExportAllowed", ...(Object.hasOwn(project, "evidence") ? ["evidence"] : [])]);
+  exact(project, ["artifactType", "schemaVersion", "placement", "gerber", "archives", "notes", "machineVersion", "machineExportAllowed", ...(Object.hasOwn(project, "evidence") ? ["evidence"] : []), ...(Object.hasOwn(project, "repair") ? ["repair"] : []), ...(Object.hasOwn(project, "attachments") ? ["attachments"] : [])]);
   if (project.artifactType !== "scan.project-session" || project.schemaVersion !== "1" || project.machineExportAllowed !== false || !text(project.machineVersion, 256)) throw new Error("Unsupported project version or capability flags.");
   validateNotes(project.notes);
   const sources = new Set<string>();
@@ -133,8 +137,17 @@ export function validateProjectSession(value: unknown): ProjectSessionFile {
   if (project.gerber !== null) sources.add(validateGerber(project.gerber).source.sha256);
   const archives = object(project.archives); exact(archives, ["original", "returned"]);
   for (const saved of [archives.original, archives.returned]) if (saved !== null) sources.add(validateArchive(saved).source.sha256);
+  if (Object.hasOwn(project, "attachments")) {
+    if (!Array.isArray(project.attachments) || project.attachments.length > 3) throw new Error("At most three supplementary files are supported.");
+    for (const raw of project.attachments) {
+      const item = object(raw); exact(item, ["role", "source"]);
+      if (!["BOM", "evidence"].includes(String(item.role))) throw new Error("Invalid supplementary source role.");
+      sources.add(validateSource(item.source, /./, 8_000_000).sha256);
+    }
+  }
   if (!sources.size || (archives.returned !== null && archives.original === null)) throw new Error("A project needs a source; a returned comparison requires its original archive.");
   if (Object.hasOwn(project, "evidence")) validateEvidence(project.evidence, sources);
+  if (Object.hasOwn(project, "repair")) validateRepairSession(project.repair);
   return value as ProjectSessionFile;
 }
 
@@ -171,14 +184,16 @@ export async function encodeProject(input: ProjectInput): Promise<Blob> {
   const placement = input.placement ? await encodeReview(input.placement.file, { ...input.placement.settings, notes: input.notes }) : null;
   const gerber = input.gerber ? await encodeGerberDraft(input.gerber.file, input.gerber.settings) : null;
   const original = await archive(input.original); const returned = await archive(input.returned);
-  const record = validateProjectSession({ artifactType: "scan.project-session", schemaVersion: "1", placement, gerber, archives: { original, returned }, notes: input.notes, machineVersion: input.machineVersion, ...(input.evidence ? { evidence: input.evidence } : {}), machineExportAllowed: false });
+  const attachments = [];
+  for (const item of input.attachments ?? []) attachments.push({ role: item.role, source: await encodeSource(item.file, 8_000_000) });
+  const record = validateProjectSession({ artifactType: "scan.project-session", schemaVersion: "1", placement, gerber, archives: { original, returned }, notes: input.notes, machineVersion: input.machineVersion, ...(input.evidence ? { evidence: input.evidence } : {}), ...(input.repair ? { repair: input.repair } : {}), ...(attachments.length ? { attachments } : {}), machineExportAllowed: false });
   // Separate Blob parts avoid expanding both large base64 strings in one stringify.
   function archiveParts(value: ProjectArchive | null): BlobPart[] {
     if (!value) return ["null"];
     const { base64, ...metadata } = value.source;
     return ['{"source":', JSON.stringify(metadata).slice(0, -1), ',"base64":"', base64, '"},"selection":', JSON.stringify(value.selection), ',"draft":', JSON.stringify(value.draft), '}'];
   }
-  const blob = new Blob(['{"artifactType":"scan.project-session","schemaVersion":"1","placement":', JSON.stringify(record.placement), ',"gerber":', JSON.stringify(record.gerber), ',"archives":{"original":', ...archiveParts(original), ',"returned":', ...archiveParts(returned), '},"notes":', JSON.stringify(record.notes), ',"machineVersion":', JSON.stringify(record.machineVersion), ...(record.evidence ? [',"evidence":', JSON.stringify(record.evidence)] : []), ',"machineExportAllowed":false}'], { type: "application/json" });
+  const blob = new Blob(['{"artifactType":"scan.project-session","schemaVersion":"1","placement":', JSON.stringify(record.placement), ',"gerber":', JSON.stringify(record.gerber), ',"archives":{"original":', ...archiveParts(original), ',"returned":', ...archiveParts(returned), '},"notes":', JSON.stringify(record.notes), ',"machineVersion":', JSON.stringify(record.machineVersion), ...(record.evidence ? [',"evidence":', JSON.stringify(record.evidence)] : []), ...(record.repair ? [',"repair":', JSON.stringify(record.repair)] : []), ...(record.attachments ? [',"attachments":', JSON.stringify(record.attachments)] : []), ',"machineExportAllowed":false}'], { type: "application/json" });
   if (blob.size > PROJECT_MAX_BYTES) throw new Error("Project exceeds the 300 MB save limit. Shorten annotations and try again.");
   return blob;
 }
@@ -196,7 +211,9 @@ export async function decodeProject(file: File): Promise<RestoredProject> {
   const gerber = record.gerber ? { draft: record.gerber, file: await decodeSource(record.gerber.source) } : undefined;
   const original = record.archives.original ? { record: record.archives.original, file: await decodeSource(record.archives.original.source) } : null;
   const returned = record.archives.returned ? { record: record.archives.returned, file: await decodeSource(record.archives.returned.source) } : null;
-  return { record, placement, ...(gerber ? { gerber } : {}), original, returned };
+  const attachments = [];
+  for (const item of record.attachments ?? []) attachments.push({ role: item.role, file: await decodeSource(item.source) });
+  return { record, attachments, placement, ...(gerber ? { gerber } : {}), original, returned };
 }
 
 export function selectionInInventory(selection: ArchiveSelection, inventory: ArchiveInventory): boolean {

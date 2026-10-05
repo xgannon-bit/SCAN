@@ -119,7 +119,7 @@ test('placement through native record review, changed-asset comparison and compl
   expect(reference.subarray(0, 4).toString('hex')).toBe('504b0304');
   await expect(page.getByText('Preserved native source package downloaded with fresh integrity evidence.', { exact: false })).toBeVisible();
   expect(handoff.placements).toHaveLength(1);
-  await expect(page.getByRole('button', { name: 'Export native candidate', exact: true })).toBeDisabled();
+  await expect(page.getByRole('link', { name: 'Review and export qualification candidate', exact: true })).toHaveAttribute('href', '/repair');
   await page.screenshot({ path: info.outputPath('native-integrity-review.png'), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await nav(page, 'Job dashboard').click();
@@ -146,7 +146,7 @@ test('surviving temporary snapshot and unchanged payloads stay explicitly unqual
   expect(report.before.selection.job.role).toBe('temp');
   expect(report.comparison.filePayloadsEqual).toBe(true);
   expect(report.holds.some((hold: { code: string }) => hold.code === 'SOFTWARE_VERSION_MISSING')).toBe(true);
-  await expect(page.getByRole('button', { name: 'Export native candidate', exact: true })).toBeDisabled();
+  await expect(page.getByRole('link', { name: 'Review and export qualification candidate', exact: true })).toHaveAttribute('href', '/repair');
 });
 
 test('job selector excludes companion backups and nested snapshots while preserving their bytes', async ({ page }, info) => {

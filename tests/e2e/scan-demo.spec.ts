@@ -87,7 +87,7 @@ test("fictional walkthrough keeps duplicate RefDes decisions independent", async
 test("navigation, bottom-side identity and refresh reset remain truthful", async ({ page }) => {
   await page.goto("/demo#repair");
   await assertStage(page, "Open Job / Source Intake");
-  await expect(page.getByRole("button", { name: "Repair Review", exact: true })).toBeDisabled();
+  await expect(page.getByRole("navigation", { name: "SCAN screens" }).getByRole("link", { name: "Repair Review", exact: true })).toHaveAttribute("href", "/repair");
   await page.getByRole("button", { name: "Open fictional session" }).click();
   await page.getByRole("button", { name: "Selected Finding", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Select a placement first" })).toBeVisible();

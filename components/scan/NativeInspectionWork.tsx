@@ -1,11 +1,13 @@
 "use client";
 
+import { useScanSession } from "./ScanSession";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { NativeInspectionWork as InspectionWork } from "@/lib/scan/native-inspection-work";
 import { downloadJson } from "@/lib/scan/review-session";
 
 export function NativeInspectionWork({ report }: { report?: InspectionWork }) {
+  const { repair, setRepair } = useScanSession();
   const [filter, setFilter] = useState("");
   const [notice, setNotice] = useState("");
   const [expandedPart, setExpandedPart] = useState<string | null>(null);
@@ -52,6 +54,7 @@ export function NativeInspectionWork({ report }: { report?: InspectionWork }) {
               <p className="break-words">{window.sourcePath}</p>
               <p>Geometry: {window.geometryReview} · Binding: {window.bindingReview} · Teaching: {window.teachingReview}</p>
               <p className="break-words">Relative ROI literals: {JSON.stringify(Object.fromEntries(Object.entries(window.rawFields).filter(([key]) => key.startsWith("RelRoi/"))))}</p>
+              <label className="scan-field">Shared window review observation<textarea maxLength={2000} value={repair.work.find(note => note.key === window.id && note.sourceSha256 === report.sourceContext?.archiveSha256 && note.snapshotId === report.sourceContext?.snapshotId)?.note ?? ""} onChange={event => { const context = report.sourceContext; if (!context) return; const note = event.target.value; setRepair(old => ({ ...old, work: [...old.work.filter(value => !(value.key === window.id && value.sourceSha256 === context.archiveSha256 && value.snapshotId === context.snapshotId)), { key: window.id, sourceSha256: context.archiveSha256, snapshotId: context.snapshotId, status: "reviewed-offline", note }] })); }} /><span>Applies to this shared window scope ({scope.partIds.length} placements). This note does not mark teaching or machine verification complete.</span></label>
               <p>{window.algorithmIds.length} observed algorithm records. Their presence does not prove correct teaching.</p>
               {window.algorithmIds.slice(0, 50).map(id => {
                 const algorithm = algorithms.get(id);

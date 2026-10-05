@@ -28,7 +28,7 @@ export function ReviewHandoff() {
   return <div className="scan-content-stack">
     <section className="scan-panel" aria-labelledby="handoff-title"><div className="scan-panel-heading"><h2 id="handoff-title">Source review and remaining work</h2></div><div className="scan-panel-body">
       <p>Export the full placement review, exact row identities, notes, archive preflight and remaining-work list. Every parsed placement is listed with native preparation marked not assessed.</p>
-      <div className="scan-actions"><Button disabled={!result && !archiveReview} onClick={() => save("text")}>Download readable handoff (.txt)</Button><Button variant="outline" disabled={!result && !archiveReview} onClick={() => save("json")}>Download complete review (.json)</Button><Button disabled variant="outline">Export native candidate</Button></div>
+      <div className="scan-actions"><Button disabled={!result && !archiveReview} onClick={() => save("text")}>Download readable handoff (.txt)</Button><Button variant="outline" disabled={!result && !archiveReview} onClick={() => save("json")}>Download complete review (.json)</Button><Link href="/repair" className={buttonVariants({ variant: "outline" })}>Review and export qualification candidate</Link></div>
       {message && <p role="status">{message}</p>}
       <p className="scan-caption">This report is available for blocked reviews too. It is not the complete native engineering bundle and has no JOB_COPY. Placement-to-archive correspondence has not been verified.</p>
     </div></section>

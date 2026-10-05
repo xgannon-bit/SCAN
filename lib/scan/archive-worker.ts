@@ -28,7 +28,7 @@ export async function archiveWorker(bytes: Buffer, control: Record<string, unkno
     const source = path.join(directory, "source.zip");
     await writeFile(source, bytes, { flag: "wx", mode: 0o600 });
     const request = JSON.stringify({ ...control, protocolVersion: "1", source });
-    if (Buffer.byteLength(request) > 16_384) throw new Error("Archive selection is too large.");
+    if (Buffer.byteLength(request) > 1_100_000) throw new Error("Archive selection is too large.");
     const interpreter = process.env.SCAN_PYTHON || path.join(process.cwd(), ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
     const result = await new Promise<Record<string, unknown>>((resolve, reject) => {
       const child = spawn(/* turbopackIgnore: true */ interpreter, ["-m", "workers.scan.archive_browser_cli"], {
@@ -55,13 +55,15 @@ export async function archiveWorker(bytes: Buffer, control: Record<string, unkno
       });
       child.stdin.end(request);
     });
-    if (!["download", "reference"].includes(String(control.action)) || result.status !== "success") return Response.json(result, { headers });
+    if (!["download", "reference", "repair-export"].includes(String(control.action)) || result.status !== "success") return Response.json(result, { headers });
     const review = result as unknown as ArchiveReview;
     const reference = control.action === "reference";
-    const payload = reference ? review.reference : { sha256: review.capture.packageSha256, size: review.capture.size };
-    const snapshot = path.join(directory, reference ? "result.native-reference.zip" : "result.scan-snapshot");
+    const engineering = control.action === "repair-export";
+    const payload = engineering ? { sha256: String(result.sha256), size: Number(result.size) } : reference ? review.reference : { sha256: review.capture.packageSha256, size: review.capture.size };
+    const snapshot = path.join(directory, engineering ? "result.engineering.zip" : reference ? "result.native-reference.zip" : "result.scan-snapshot");
     const info = await stat(snapshot);
-    if (review.artifactType !== "scan.archive-review" || review.machineExportAllowed !== false || review.capture.packageSha256 !== control.expectedPackageSha256 || !payload || !/^[a-f0-9]{64}$/.test(payload.sha256) || (reference && review.reference?.nativeEditsApplied !== false) || !info.isFile() || info.size !== payload.size || info.size > (reference ? 125_000_000 : 620_000_000)) throw new Error("Archive snapshot does not match the reviewed capture.");
+    if (!engineering && (review.artifactType !== "scan.archive-review" || review.machineExportAllowed !== false || review.capture.packageSha256 !== control.expectedPackageSha256 || !payload || !/^[a-f0-9]{64}$/.test(payload.sha256) || (reference && review.reference?.nativeEditsApplied !== false) || !info.isFile() || info.size !== payload.size || info.size > (reference ? 125_000_000 : 620_000_000))) throw new Error("Archive snapshot does not match the reviewed capture.");
+    if (engineering && (result.artifactType !== "scan.engineering-download" || result.machineExportAllowed !== false || result.qualificationOnly !== true || result.sourceSha256 !== control.expectedArchiveSha256 || !/^[a-f0-9]{64}$/.test(payload!.sha256) || info.size !== payload!.size || info.size > 1_030_000_000)) throw new Error("Archive candidate result is invalid.");
     if (signal.aborted) throw new Error("Archive import cancelled.");
     const input = createReadStream(snapshot);
     const reader = (Readable.toWeb(input) as ReadableStream<Uint8Array>).getReader();
@@ -84,6 +86,6 @@ export async function archiveWorker(bytes: Buffer, control: Record<string, unkno
       cancel: close,
     });
     streaming = true;
-    return new Response(body, { headers: { ...headers, "Content-Type": "application/octet-stream", "Content-Length": String(info.size), "Content-Disposition": `attachment; filename="${reference ? "scan-preserved-native-reference.zip" : "scan-source.scan-snapshot"}"`, "X-SCAN-SHA256": payload.sha256, "X-SCAN-Source-SHA256": review.preflight.source.sha256, "X-SCAN-Native-Edits": "none" } });
+    return new Response(body, { headers: { ...headers, "Content-Type": "application/octet-stream", "Content-Length": String(info.size), "Content-Disposition": `attachment; filename="${engineering ? "scan-engineering-QUALIFICATION-ONLY.zip" : reference ? "scan-preserved-native-reference.zip" : "scan-source.scan-snapshot"}"`, "X-SCAN-SHA256": payload!.sha256, "X-SCAN-Source-SHA256": engineering ? String(result.sourceSha256) : review.preflight.source.sha256, "X-SCAN-Native-Edits": engineering ? "qualification-only" : "none", ...(engineering ? { "X-SCAN-Candidate-SHA256": String(result.candidateSha256) } : {}) } });
   } finally { if (!streaming) await dispose(); }
 }
