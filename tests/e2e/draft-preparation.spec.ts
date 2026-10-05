@@ -22,9 +22,9 @@ test('source family review is connected, held and recomputed after project reope
   await page.getByRole('navigation', { name: 'SCAN screens' }).getByRole('link', { name: 'Source findings', exact: true }).click();
   const region = page.getByRole('region', { name: 'Disabled draft preparation' });
   await region.getByText('two pad rectangular source family · 1 references', { exact: true }).click();
-  await region.getByText('F7 · creation held', { exact: true }).click();
+  await region.getByText('F7 · source family review', { exact: true }).click();
   await expect(region).toContainText('Explicit source layer 1');
-  await expect(region).toContainText('No new native records have been created');
+  await expect(region).toContainText('candidate history and candidate accounting');
   await expect(region).toContainText('90°');
   const pendingReview = page.waitForEvent('download');
   await region.getByRole('button', { name: 'Download draft preparation review' }).click();
@@ -41,7 +41,7 @@ test('source family review is connected, held and recomputed after project reope
   await region.getByRole('button', { name: 'Download draft preparation review' }).click();
   expect(JSON.parse(await readFile((await (await pendingAfter).path())!, 'utf8'))).toEqual(before);
   await region.getByText('two pad rectangular source family · 1 references', { exact: true }).click();
-  await region.getByText('F7 · creation held', { exact: true }).click();
+  await region.getByText('F7 · source family review', { exact: true }).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath('draft-review.png'), fullPage: true });
   expect(errors).toEqual([]); expect(external).toEqual([]);

@@ -1,0 +1,55 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { archiveWorker } from '../lib/scan/archive-worker.ts';
+import { encodeProject, decodeProject } from '../lib/scan/project-session.ts';
+import { validateNativePreparationSession } from '../lib/scan/native-preparation-session.ts';
+import { makeArchive, syntheticMembers, syntheticSelection } from './synthetic-archive.mjs';
+
+import { authoredPreparation } from './native-preparation-fixture.mjs';
+
+test('browser worker rechecks full proposals and exports only accepted disabled source-derived parts', async () => {
+  const fixture = authoredPreparation();
+  const archive = makeArchive({ ...syntheticMembers, [syntheticSelection.jobMember]: fixture.job, [syntheticSelection.masterMember]: fixture.master });
+  const hash = Buffer.from(await crypto.subtle.digest('SHA-256', archive)).toString('hex');
+  const preflight = await (await archiveWorker(archive, { action: 'preflight', expectedArchiveSha256: hash, selection: syntheticSelection }, new AbortController().signal)).json();
+  assert.equal(preflight.status, 'success');
+  const pcb = Buffer.from(fixture.pcb), layoutSha256 = Buffer.from(await crypto.subtle.digest('SHA-256', pcb)).toString('hex');
+  const base = { expectedArchiveSha256: hash, expectedPackageSha256: preflight.capture.packageSha256, selection: syntheticSelection };
+  const call = (action, draft) => archiveWorker(archive, { ...base, action, draft }, new AbortController().signal, undefined, pcb);
+  const checked = await (await call('draft-review', { layoutSha256 })).json();
+  assert.equal(checked.status, 'success'); assert.equal(checked.plan.items.filter(i => i.status === 'ready-for-review').length, 2);
+  assert.equal(checked.accounting.filter(i => i.status === 'prepared-disabled').length, 0);
+  const proposal = { layoutSha256, reviewDigest: checked.digest, accepted: [checked.plan.items[0].digest], reviewer: 'Authored integration reviewer', acknowledgement: 'QUALIFICATION ONLY' };
+  for (const draft of [{ ...proposal, reviewDigest: '0'.repeat(64) }, { ...proposal, accepted: ['0'.repeat(64)] }, { ...proposal, acknowledgement: '' }]) {
+    const response = await call('draft-export', draft); assert.equal((await response.json()).status, 'blocked');
+  }
+  const response = await call('draft-export', proposal);
+  assert.equal(response.headers.get('X-SCAN-Native-Edits'), 'qualification-only');
+  const output = Buffer.from(await response.arrayBuffer());
+  assert.equal(Buffer.from(await crypto.subtle.digest('SHA-256', output)).toString('hex'), response.headers.get('X-SCAN-SHA256'));
+  const python = path.join(process.cwd(), '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+  const verify = spawnSync(python, ['-c', `import zipfile,io,json,sys
+with zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())) as z:
+ rows=json.loads(z.read('component_accounting.json'))
+ assert sum(r['status']=='prepared-disabled' for r in rows)==1
+ assert all(r['machineValidated'] is False for r in rows)
+ changes=json.loads(z.read('applied_changes.json'));assert len(changes)==1
+ qualification=json.loads(z.read('qualification.json'));assert qualification['EagleOpenSaveReopen']=='not-performed'
+ with zipfile.ZipFile(io.BytesIO(z.read('CANDIDATE.zip'))) as c:
+  assert c.testzip() is None
+`], { input: output, encoding: 'utf8' });
+  assert.equal(verify.status, 0, verify.stderr);
+});
+
+test('preparation decisions and candidate history round-trip; malformed authority and history refuse', async () => {
+  const identity = { digest: 'a'.repeat(64), sourceContext: 'b'.repeat(64), archiveSha256: 'c'.repeat(64), layoutSha256: 'd'.repeat(64), decisions: [{ digest: 'e'.repeat(64), reference: 'INVENTED', decision: 'accepted' }] };
+  const nativePreparation = { reviewer: 'Authored reviewer', review: identity, history: [{ id: 'authored-history', recordedAt: '2026-01-02T03:04:05Z', packageSha256: 'f'.repeat(64), candidateSha256: '0'.repeat(64), review: identity, reviewer: 'Authored reviewer', accepted: ['e'.repeat(64)] }] };
+  const project = await encodeProject({ placement: null, gerber: null, original: { file: new File([makeArchive()], 'authored.zip'), selection: syntheticSelection, draft: { root: syntheticSelection.root, job: JSON.stringify({ role: 'main', member: syntheticSelection.jobMember }), master: JSON.stringify({ role: 'main', member: syntheticSelection.masterMember }) } }, returned: null, notes: {}, machineVersion: '', nativePreparation });
+  const restored = await decodeProject(new File([project], 'authored.scan-project.json'));
+  assert.deepEqual(restored.record.nativePreparation, nativePreparation);
+  for (const mutate of [v => { v.machineValidated = true; }, v => { v.review.decisions.push(v.review.decisions[0]); }, v => { v.history[0].accepted = ['a'.repeat(64)]; }, v => { v.history[0].recordedAt = 'not-a-date'; }]) {
+    const changed = structuredClone(nativePreparation); mutate(changed); assert.throws(() => validateNativePreparationSession(changed));
+  }
+});

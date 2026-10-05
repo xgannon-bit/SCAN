@@ -4,6 +4,7 @@ import { useScanSession } from "./ScanSession";
 import { buildSourceCrosswalk } from "@/lib/scan/source-crosswalk";
 import { downloadJson } from "@/lib/scan/review-session";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 
 export function DraftPreparationReview() {
   const { layout, bom, result, archiveReview, comparisons } = useScanSession();
@@ -16,13 +17,13 @@ export function DraftPreparationReview() {
   const groups = Map.groupBy(rows, row => row.engineeringDnp ? "population-decision-needed" : row.draftPreparation.classification);
   return <section className="scan-panel scan-panel-body" aria-label="Disabled draft preparation" id="draft-preparation">
     <h2>Prepare missing native parts</h2>
-    <p>Source geometry is grouped below so shared preparation questions can be resolved once. No new native records have been created. Existing teaching, population approval and machine verification remain separate.</p>
+    <p>Source geometry is grouped below so shared preparation questions can be resolved once. <Link href="/repair#native-preparation">Find supported job-local models and review complete disabled part proposals</Link> in Repair Review. This source-family view describes the original baseline; candidate history and candidate accounting track applied preparation separately.</p>
     <label><input type="checkbox" checked={showExisting} onChange={event => setShowExisting(event.target.checked)} /> Include references with existing native structure</label>
     {[...groups].map(([group, items]) => <details key={group}>
       <summary>{group.replace(/-/g, " ")} · {items.length} references</summary>
       <p>{items.map(item => item.reference).join(", ")}</p>
       {items.map(({ reference, draftPreparation: draft }) => <details key={reference}>
-        <summary>{reference} · creation held</summary>
+        <summary>{reference} · source family review</summary>
         <p><strong>Next action:</strong> {draft.nextAction}</p>
         <p>Source footprint: {draft.patternRef ?? "unknown"}. Drill evidence: {draft.mountingEvidence}. {draft.templateCandidates.length} literal package-name template correspondences; compatibility unqualified.</p>
         {draft.layers.map(layer => <div key={layer.layerNumber}>

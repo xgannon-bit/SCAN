@@ -45,3 +45,19 @@ Downloads are requested through the browser. Confirm the file exists in Download
 ## Component preparation queue
 
 The source reconciliation panel classifies every represented reference into existing native structure to preserve, multiple native placements in the same module to review, missing native preparation, a pending engineering-DNP population decision, or pre-arrival work without a native job. Each item retains exact native IDs, modules, Master keys and enable literals. Filter by preparation task or reference to work a group together. These categories do not assert that teaching is complete or that a missing placement should be populated. Native-only references remain visible.
+
+## Disabled part preparation evaluation
+
+With main job/Master and ACCEL source layout selected, open Repair Review and use
+**Find supported native preparation**. Review a proposed part's exact records,
+origin-preserving CAD translation and remaining work. Name the reviewer, accept
+that individual disabled preparation, acknowledge qualification-only output and
+apply it to a separate candidate. The download contains the native engineering
+copy and a reopenable project with decisions/history.
+
+Check candidate component accounting and the freshly rebuilt native inspection
+work. Prepared-disabled means actual placement/model/window records were inserted;
+it does not mean bound, enabled, taught or machine validated. New algorithms and
+bindings/FOV lists need Eagle work. Temp/backup remain the original state. Reopen
+the project and recompute preparation to verify retained exact decisions before
+another export. Preserve the previous candidate revision when testing Eagle.

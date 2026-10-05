@@ -5,6 +5,7 @@ import { ArrowRight, Download, FileSpreadsheet, LockKeyhole } from "lucide-react
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useScanSession } from "./ScanSession";
+import { ProjectStatus } from "./ProjectStatus";
 
 export function ScanDashboard() {
   const { file, preview, result, stage, busy, error, reset, download, notes, editNote, archiveFile, inventory, archiveReview, archiveBusy, gerber } = useScanSession();
@@ -16,6 +17,7 @@ export function ScanDashboard() {
       <div><p className="scan-eyebrow">Next action</p><h2 id="next-action-title">{nextTitle}</h2><p>{ready ? "Your parsed placements are available in the board workspace with their exact module, side and source identity." : "Import, map and review your source coordinates in one SCAN session. The dashboard follows your progress."}</p></div>
       <Link href={nextHref} className={buttonVariants()}>{archiveReview ? "Open Repair Review" : error ? "Review import message" : ready ? "Open board workspace" : result ? "Review source findings" : file ? "Continue source intake" : "Open placement intake"}<ArrowRight aria-hidden="true" /></Link>
     </section>
+    <ProjectStatus />
     <div className="scan-dashboard-grid">
       <section className="scan-panel" aria-labelledby="placement-source-title">
         <div className="scan-panel-heading"><h2 id="placement-source-title"><FileSpreadsheet size={17} aria-hidden="true" /> Placement source</h2><Badge variant="outline">{file ? "Selected" : "Needed"}</Badge></div>

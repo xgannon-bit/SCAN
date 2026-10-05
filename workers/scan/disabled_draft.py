@@ -92,14 +92,14 @@ def _decimal(value):
     return format(value, '.9f').rstrip('0').rstrip('.') or '0'
 
 
-def _closing_offsets(raw):
+def _closing_offsets(raw, paths=('JobContainer/PartDataList', 'JobContainer/WindowDataList')):
     parser = expat.ParserCreate()
     stack, offsets = [], {}
     def start(tag, _attrs):
         stack.append(tag)
     def end(_tag):
         path = '/'.join(stack)
-        if path in ('JobContainer/PartDataList', 'JobContainer/WindowDataList'):
+        if path in paths:
             offset = parser.CurrentByteIndex
             if path in offsets or not raw[offset:].startswith(b'</'):
                 _fail('DRAFT_CONTAINER', 'Insertion requires one explicit non-self-closing record collection.')

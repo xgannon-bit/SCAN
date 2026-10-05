@@ -1,7 +1,8 @@
-"""Atomic private transport for the narrow disabled structural trial profile.
+"""Atomic private transport for exact reviewed disabled qualification profiles.
 
-Not exposed as a real-board export operation. Unknown real template semantics
-remain blocked by disabled_draft.py; approval cannot override that contract.
+Both the legacy minimal trial and complete job-local adapter re-derive all new
+records from immutable source bytes. Unsupported records stay held; transport
+never grants schema, image-teaching or machine qualification.
 """
 from copy import copy
 from dataclasses import asdict
@@ -66,7 +67,11 @@ def create_disabled_draft_package(source_path, destination_path, pcb, selection:
                         raw[role] = handle.read(MAX_XML + 1)
                     if len(raw[role]) > MAX_XML:
                         _fail('XML_LIMIT', 'Selected draft XML exceeds its bounded reader.')
-                changed = apply_disabled_draft(raw['job'], raw['master'], pcb, recipe, recipe_digest(recipe))
+                if recipe.get('profile') == 'job-local-same-footprint-disabled-1':
+                    from .native_preparation import apply_preparation
+                    changed = apply_preparation(raw['job'], raw['master'], pcb, recipe, recipe_digest(recipe))
+                else:
+                    changed = apply_disabled_draft(raw['job'], raw['master'], pcb, recipe, recipe_digest(recipe))
                 replacements = {selected[role]: data for role, data in changed.items()}
                 candidate = stage / 'candidate.zip'
                 files, total = [], 0
@@ -104,7 +109,7 @@ def create_disabled_draft_package(source_path, destination_path, pcb, selection:
                             _fail('DRAFT_PRESERVATION', 'Independently reopened payload differs from the exact expected bytes.')
             candidate_hash, _ = _fresh_hash(candidate, MAX_CANDIDATE)
             receipt = {'artifactType': 'scan.disabled-draft-trial-receipt', 'status': 'success', 'schemaVersion': '1',
-                'qualificationOnly': True, 'machineExportAllowed': False, 'profileQualification': 'synthetic-structural-tests-only',
+                'qualificationOnly': True, 'machineExportAllowed': False, 'profileQualification': recipe.get('profile', 'synthetic-structural-tests-only'),
                 'archiveSha256': original_hash, 'selection': asdict(selection), 'recipe': recipe,
                 'acceptedDigest': accepted_digest, 'candidateSha256': candidate_hash, 'files': files,
                 'snapshotWarning': 'Unselected Temp and backup payloads retain their ORIGINAL state. Never silently substitute them for the two selected candidate main documents.',
@@ -113,7 +118,7 @@ def create_disabled_draft_package(source_path, destination_path, pcb, selection:
             with zipfile.ZipFile(package, 'x') as wrapper:
                 wrapper.write(candidate, 'CANDIDATE.zip')
                 wrapper.writestr('disabled-draft-receipt.json', _canonical(receipt))
-                wrapper.writestr('README.txt', 'QUALIFICATION ONLY — DISABLED STRUCTURAL TRIAL\nSynthetic structural profile only; Eagle compatibility, pad binding and inspection behavior unverified.\n' + receipt['snapshotWarning'] + '\nDo not copy over a live job or shared library.\n')
+                wrapper.writestr('README.txt', 'QUALIFICATION ONLY — DISABLED STRUCTURAL PREPARATION\nProfile: ' + str(receipt['profileQualification']) + '\nEagle compatibility, pad binding and inspection behavior unverified.\n' + receipt['snapshotWarning'] + '\nDo not copy over a live job or shared library.\n')
             digest, _ = _fresh_hash(package, MAX_CANDIDATE + 4_000_000)
             current_hash, current_stat = _fresh_hash(source, MAX_ARCHIVE)
             if current_hash != original_hash or _fingerprint(current_stat) != _fingerprint(original_stat):

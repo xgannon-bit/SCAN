@@ -8,7 +8,7 @@ import { reserveWorker } from "./worker-budget";
 import type { ArchiveReview } from "./archive-types";
 
 const headers = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
-export async function archiveWorker(bytes: Buffer, control: Record<string, unknown>, signal: AbortSignal, reservedRelease?: () => void): Promise<Response> {
+export async function archiveWorker(bytes: Buffer, control: Record<string, unknown>, signal: AbortSignal, reservedRelease?: () => void, layoutBytes?: Buffer): Promise<Response> {
   const release = reservedRelease ?? reserveWorker("archive");
   const temporaryRoot = path.resolve(tmpdir());
   const ownedPath = (candidate: string) => path.dirname(path.resolve(candidate)) === temporaryRoot && path.basename(candidate).startsWith("scan-archive-");
@@ -27,7 +27,13 @@ export async function archiveWorker(bytes: Buffer, control: Record<string, unkno
     if (!ownedPath(directory)) throw new Error("Archive temporary directory is invalid.");
     const source = path.join(directory, "source.zip");
     await writeFile(source, bytes, { flag: "wx", mode: 0o600 });
-    const request = JSON.stringify({ ...control, protocolVersion: "1", source });
+    let layoutSource: string | undefined;
+    if (String(control.action).startsWith("draft-")) {
+      if (!layoutBytes?.length || layoutBytes.length > 8_000_000) throw new Error("Archive preparation requires a source layout no larger than 8 MB.");
+      layoutSource = path.join(directory, "layout.pcb");
+      await writeFile(layoutSource, layoutBytes, { flag: "wx", mode: 0o600 });
+    }
+    const request = JSON.stringify({ ...control, protocolVersion: "1", source, ...(layoutSource ? { layoutSource } : {}) });
     if (Buffer.byteLength(request) > 1_100_000) throw new Error("Archive selection is too large.");
     const interpreter = process.env.SCAN_PYTHON || path.join(process.cwd(), ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
     const result = await new Promise<Record<string, unknown>>((resolve, reject) => {
@@ -55,10 +61,10 @@ export async function archiveWorker(bytes: Buffer, control: Record<string, unkno
       });
       child.stdin.end(request);
     });
-    if (!["download", "reference", "repair-export"].includes(String(control.action)) || result.status !== "success") return Response.json(result, { headers });
+    if (!["download", "reference", "repair-export", "draft-export"].includes(String(control.action)) || result.status !== "success") return Response.json(result, { headers });
     const review = result as unknown as ArchiveReview;
     const reference = control.action === "reference";
-    const engineering = control.action === "repair-export";
+    const engineering = control.action === "repair-export" || control.action === "draft-export";
     const payload = engineering ? { sha256: String(result.sha256), size: Number(result.size) } : reference ? review.reference : { sha256: review.capture.packageSha256, size: review.capture.size };
     const snapshot = path.join(directory, engineering ? "result.engineering.zip" : reference ? "result.native-reference.zip" : "result.scan-snapshot");
     const info = await stat(snapshot);

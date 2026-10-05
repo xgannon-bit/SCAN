@@ -4,7 +4,7 @@ These are product targets, not a declaration of implemented format support.
 
 ## Integrated offline evaluation route
 
-See [the evaluation guide](evaluation-guide.md). Repair Review now connects selected-source analysis to exact reviewed scalar proposals, explicit qualification acknowledgement, complete native-copy output and a reopenable project in one download. The local X and disable operations are qualification experiments. Their evidence is operator supplied; the writer verifies source/identity/byte preservation, not engineering validity. Binding writes remain held. This does not complete independent whole-board diagnosis or prove a repaired inspection.
+See [the evaluation guide](evaluation-guide.md). Repair Review now connects selected-source analysis to exact reviewed scalar proposals, explicit qualification acknowledgement, complete native-copy output and a reopenable project in one download. Complete disabled part preparation is also integrated: compatible source-owned job-local templates produce new placements, local Masters and remapped disabled windows after individual review. The local X, disable and preparation operations are qualification experiments. Their evidence is operator supplied; the writer verifies source/identity/byte preservation, not engineering validity. Binding writes remain held. This does not complete independent whole-board diagnosis or prove a repaired inspection.
 
 | Requested requirement | Current implementation / remaining gap |
 | --- | --- |
@@ -19,12 +19,15 @@ See [the evaluation guide](evaluation-guide.md). Repair Review now connects sele
 
 ## Repair three different things separately
 
-Source-family review now includes explicit numbered-layer outlines and drill
-evidence. The first two-pad rectangular family is classified from original
-geometry; real insertion stays held. A disabled multi-record writer and atomic
-archive transport pass synthetic structural tests but do not yet support the
-complete actual native template schema. See [disabled draft preparation](disabled-draft-preparation.md)
-for the exact contract and remaining engineering.
+Source-family review now connects to complete disabled native part preparation.
+The job-local same-footprint adapter derives a new placement, local Master and
+linked windows from a compatible source-owned template using the native CAD frame.
+Individual review/apply, complete candidate transport, actual candidate accounting,
+remaining native work and saved decisions/history are integrated. Different
+rotation, unsupported or missing template families remain held. New bindings/FOV
+lists and algorithms remain empty. Eagle compatibility and teaching are unverified.
+See [disabled native preparation](disabled-draft-preparation.md) for the exact
+contract and qualification boundaries.
 
 1. Source-format defects: combined X/Y columns, numeric text, explicit unit conversion, coordinate-format declarations and revision inconsistencies.
 2. Cross-file alignment: side, origin, units, angle convention, mirror and module transforms, with independent correspondences and residual checks.

@@ -23,6 +23,8 @@ def dispatch(request):
     fields['reference'] = fields['download']
     for repair_action in ('repair-review', 'repair-export'):
         fields[repair_action] = fields['download'] | {'repair'}
+    for draft_action in ('draft-review', 'draft-export'):
+        fields[draft_action] = fields['download'] | {'draft', 'layoutSource'}
     if not isinstance(action, str) or action not in fields or set(request) != fields[action]:
         return blocked('INVALID_REQUEST', 'Unexpected browser worker fields.')
     source = request.get('source')
@@ -31,7 +33,7 @@ def dispatch(request):
     if action == 'inventory':
         return core_dispatch({'protocolVersion': '1', 'action': 'inventory', 'source': source})
     expected_package = request.get('expectedPackageSha256')
-    if action in ('download', 'reference', 'repair-review', 'repair-export') and (not isinstance(expected_package, str) or not re.fullmatch(r'[a-f0-9]{64}', expected_package)):
+    if action in ('download', 'reference', 'repair-review', 'repair-export', 'draft-review', 'draft-export') and (not isinstance(expected_package, str) or not re.fullmatch(r'[a-f0-9]{64}', expected_package)):
         return blocked('INVALID_REQUEST', 'A previously verified capture hash is required for download.')
     destination = Path(source).parent / 'result.scan-snapshot'
     capture = core_dispatch({'protocolVersion': '1', 'action': 'capture', 'source': source, 'destination': str(destination),
@@ -44,7 +46,7 @@ def dispatch(request):
                             'expectedPackageSha256': capture['package_sha256']})
     if report['status'] != 'success':
         return report
-    if action in ('download', 'reference', 'repair-review', 'repair-export') and capture['package_sha256'] != expected_package:
+    if action in ('download', 'reference', 'repair-review', 'repair-export', 'draft-review', 'draft-export') and capture['package_sha256'] != expected_package:
         return blocked('CAPTURE_CHANGED', 'Recreated snapshot differs from the reviewed capture. Run preflight again.')
     review = {'status': 'success', 'code': 'ARCHIVE_PREFLIGHT_RECORDED', 'artifactType': 'scan.archive-review', 'schemaVersion': '1',
             'capture': {'snapshotId': capture['snapshot_id'], 'packageSha256': capture['package_sha256'], 'size': destination.stat().st_size},
@@ -55,6 +57,9 @@ def dispatch(request):
     if action in ('repair-review', 'repair-export'):
         from .repair_review import run
         return run(source, review, {**request['repair'], 'action': action})
+    if action in ('draft-review', 'draft-export'):
+        from .native_preparation_review import run
+        return run(source, request['layoutSource'], review, {**request['draft'], 'action': action})
     return review
 
 
