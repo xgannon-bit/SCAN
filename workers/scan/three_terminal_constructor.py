@@ -58,7 +58,7 @@ def validate_profile(p):
             _fail('PACKAGE_GEOMETRY', 'Conservative physical-electrode overlap is required.')
 
 
-def source_geometry(target, profile, pcb, count=3, physical_pins=None):
+def source_geometry(target, profile, pcb, count=3, physical_pins=None, body_edge_count=4, polar_axis=True):
     from .paired_terminal_constructor import pin_mapping
     if any(e['layoutSha256'] != sha256(pcb).hexdigest() for e in (profile['anchor']['evidence'], profile['polarity']['evidence'])):
         _fail('PACKAGE_EVIDENCE_STALE', 'Body and physical-pin evidence must identify this exact layout.')
@@ -115,8 +115,10 @@ def source_geometry(target, profile, pcb, count=3, physical_pins=None):
             _fail('PACKAGE_BODY_DATUM', 'A nondegenerate cardinal body rectangle is required.')
         vertices.update(pts); edges.append(frozenset(pts))
     xs, ys = sorted({x for x, y in vertices}), sorted({y for x, y in vertices})
-    if len(vertices) != 4 or set(vertices.values()) != {2} or len(set(edges)) != 4 or len(xs) != 2 or len(ys) != 2:
-        _fail('PACKAGE_BODY_DATUM', 'Four unique connected edges must close an exact rectangle, without markings.')
+    closed = body_edge_count == 4 and set(vertices.values()) == {2}
+    three_sided = body_edge_count == 3 and sorted(vertices.values()) == [1, 1, 2, 2]
+    if len(vertices) != 4 or not (closed or three_sided) or len(edges) != body_edge_count or len(set(edges)) != body_edge_count or len(xs) != 2 or len(ys) != 2:
+        _fail('PACKAGE_BODY_DATUM', 'The reviewed cardinal body edges must form the exact connected manufacturer frame, without markings.')
     center = ((xs[0]+xs[1])/2, (ys[0]+ys[1])/2)
     bw, bh = xs[1]-xs[0], ys[1]-ys[0]
     quarter = profile['packageRotationDegrees'] % 180 != 0
@@ -141,9 +143,12 @@ def source_geometry(target, profile, pcb, count=3, physical_pins=None):
             _fail('PACKAGE_DRAWING_LAND_MISMATCH', 'Numbered manufacturer physical lead fails owned-land overlap: check anchor, rotation and pin mapping; no mirror guess.')
         terminals.append({'padNumber':str(pad['padNumber']),'pin':pin,'terminalRole':profile['polarity']['pinRoles'][pin],
                           'cx':x,'cy':y,'w':w,'h':h,'a':0,'sourcePath':pad['padSourcePath'],'electrodeOverlapFraction':overlap})
-    a = next(t for t in terminals if t['terminalRole']=='anode'); k = next(t for t in terminals if t['terminalRole']=='cathode')
-    length=math.hypot(k['cx']-a['cx'],k['cy']-a['cy'])
-    if length <= 0:
-        _fail('PACKAGE_PHYSICAL_ROLES', 'Distinct anode/cathode physical lands are required.')
+    axis = None
+    if polar_axis:
+        a = next(t for t in terminals if t['terminalRole']=='anode'); k = next(t for t in terminals if t['terminalRole']=='cathode')
+        length=math.hypot(k['cx']-a['cx'],k['cy']-a['cy'])
+        if length <= 0:
+            _fail('PACKAGE_PHYSICAL_ROLES', 'Distinct anode/cathode physical lands are required.')
+        axis = [(k['cx']-a['cx'])/length,(k['cy']-a['cy'])/length]
     return {'center':center,'bodyWidth':dw,'bodyHeight':dh,'terminals':terminals,'pinMapSourcePath':path,
-            'axis':[(k['cx']-a['cx'])/length,(k['cy']-a['cy'])/length], 'anchor':profile['anchor'],'polarity':profile['polarity']}
+            'axis':axis, 'anchor':profile['anchor'],'polarity':profile['polarity']}

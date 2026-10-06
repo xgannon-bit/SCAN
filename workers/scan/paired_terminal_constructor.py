@@ -25,6 +25,13 @@ def validate_profiles(profiles):
         _fail('PACKAGE_PROFILE', 'At most 20 explicit package evidence profiles are supported.')
     ids = set()
     for p in profiles:
+        if isinstance(p, dict) and p.get('kind') == 'numbered-external-terminal-thermal-body-v1':
+            from .thermal_terminal_constructor import validate_profile
+            validate_profile(p)
+            if p['id'] in ids:
+                _fail('PACKAGE_PROFILE', 'Package evidence profile IDs must be unique.')
+            ids.add(p['id'])
+            continue
         if isinstance(p, dict) and p.get('kind') == 'numbered-physical-terminal-body-v1':
             from .physical_terminal_constructor import validate_profile
             validate_profile(p)
@@ -174,7 +181,10 @@ def construct(j, m, layout, pcb, choice, profile, allocate):
     if _text(cad, 'PrntPartName') not in profile['nativePartNames']:
         _fail('PACKAGE_IDENTITY', 'Native CAD identity is not one of the explicitly matched drawing identities.')
     polarized = profile['kind'] in {'polarized-two-terminal-body-v1', 'polarized-three-terminal-body-v1', 'numbered-physical-terminal-body-v1'}
-    if profile['kind'] == 'numbered-physical-terminal-body-v1':
+    if profile['kind'] == 'numbered-external-terminal-thermal-body-v1':
+        from .thermal_terminal_constructor import source_geometry as thermal_geometry
+        geom = thermal_geometry(target, profile, pcb)
+    elif profile['kind'] == 'numbered-physical-terminal-body-v1':
         from .physical_terminal_constructor import source_geometry as physical_geometry
         geom = physical_geometry(target, profile, pcb)
     elif profile['kind'] == 'polarized-three-terminal-body-v1':
@@ -262,6 +272,9 @@ def construct(j, m, layout, pcb, choice, profile, allocate):
                       'padNumber': region.get('padNumber'), 'pin': region.get('pin'), 'sourcePath': region.get('sourcePath')})
         if polarized and i:
             roles[-1]['terminalRole'] = region['terminalRole']
+        if profile['kind'] == 'numbered-external-terminal-thermal-body-v1' and i:
+            roles[-1].update(terminalRole=region['terminalRole'], opticallyInspectable=None,
+                            opticalAccess=region['opticalAccess'])
     changes = []
     for role, container, node in [('job', 'PartDataList', newpart), ('master', 'PartDataList', newmodel), *[('master', 'WindowDataList', w) for w in newwindows]]:
         node.tail = None
@@ -303,4 +316,15 @@ def construct(j, m, layout, pcb, choice, profile, allocate):
                                                              geom['pin1Direction'][0]*math.sin(radians)+geom['pin1Direction'][1]*math.cos(radians)])
         result['remaining'].extend(['pin1-mark-and-physical-pin-role-image-verification-required',
                                     'extra-footprint-land-has-no-physical-lead-not-a-component-or-inspection-exclusion'])
+    if profile['kind'] == 'numbered-external-terminal-thermal-body-v1':
+        result['dependencies']['thermalPads'] = geom['thermalPads']
+        result['basis'].update(bodyAnchorEvidence=geom['anchor'], numberedTerminalEvidence=geom['polarity'],
+                               pin1Evidence=geom['pin1'], pin1DirectionPatternAxes=geom['pin1Direction'],
+                               pin1DirectionNativeBoardAxes=[geom['pin1Direction'][0]*math.cos(radians)-geom['pin1Direction'][1]*math.sin(radians),
+                                                             geom['pin1Direction'][0]*math.sin(radians)+geom['pin1Direction'][1]*math.cos(radians)],
+                               opticalAccessQualified=False)
+        result['remaining'].extend(['pin1-mark-and-numbered-terminal-image-verification-required',
+                                    'external-joint-optical-visibility-unverified-geometry-is-not-access-evidence',
+                                    'underside-thermal-pad-not-optically-inspectable-no-native-optical-window',
+                                    'hidden-joint-coverage-requires-separate-inspection-method-or-approved-coverage-decision'])
     return result
