@@ -6,6 +6,7 @@ import zipfile
 
 from .disabled_draft_package import create_disabled_draft_package, package_digest
 from .native_preparation import automatic_plan, component_accounting, recipe_digest, apply_preparation
+from .native_pad_binding import diagnose_pad_bindings
 from .repair_review import _csv, _software_identity, _remaining_rows
 from .snapshot_capture import SnapshotSelection, CaptureBlocked
 
@@ -36,7 +37,8 @@ def run(source, layout_path, review, control):
         digest = package_digest(archive_hash, selection, plan)
         if control['action'] == 'draft-review':
             return {'status': 'success', 'artifactType': 'scan.native-preparation-review', 'plan': plan, 'digest': digest,
-                    'accounting': component_accounting(job, plan), 'qualificationOnly': True, 'machineExportAllowed': False}
+                    'accounting': component_accounting(job, plan), 'padBindingWork': diagnose_pad_bindings(job, master, pcb),
+                    'qualificationOnly': True, 'machineExportAllowed': False}
         if set(control) != {'action', 'layoutSha256', 'reviewDigest', 'accepted', 'reviewer', 'acknowledgement'} or control['reviewDigest'] != digest:
             raise CaptureBlocked('PREPARATION_STALE', 'The complete reviewed plan must match fresh source bytes and selected snapshots.')
         if control['acknowledgement'] != 'QUALIFICATION ONLY' or not isinstance(control['reviewer'], str) or not 0 < len(control['reviewer'].strip()) <= 256:
@@ -45,6 +47,7 @@ def run(source, layout_path, review, control):
         # Fresh re-derivation proves every accepted record before any package write.
         changed = apply_preparation(job, master, pcb, recipe, recipe_digest(recipe))
         accounting = component_accounting(changed['job'], plan, recipe['accepted'])
+        binding_work = diagnose_pad_bindings(changed['job'], changed['master'], pcb)
         package = Path(source).parent / 'parts.scan-draft-qualification.zip'
         result = create_disabled_draft_package(source, package, pcb, selection, archive_hash, recipe,
                                                package_digest(archive_hash, selection, recipe))
@@ -73,7 +76,8 @@ def run(source, layout_path, review, control):
         result['software']['adapter'] = 'browser-native-preparation-1'
         result['software']['writer'] = plan['profile']
         for name in ('native_preparation.py', 'native_preparation_review.py', 'disabled_draft.py',
-                     'disabled_draft_package.py', 'accel_ascii.py', 'snapshot_capture.py', 'job_intake.py'):
+                     'disabled_draft_package.py', 'accel_ascii.py', 'snapshot_capture.py', 'job_intake.py',
+                     'native_pad_binding.py', 'native_model_geometry.py', 'native_window_subset.py'):
             result['software']['codeSha256'][name] = sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
         applied = [item for item in plan['items'] if item.get('digest') in recipe['accepted']]
         output = Path(source).parent / 'result.engineering.zip'
@@ -87,17 +91,21 @@ def run(source, layout_path, review, control):
                     'applied_changes.json': applied, 'decisions.json': {'reviewer': result['reviewer'], 'acceptedDigests': recipe['accepted'], 'reviewDigest': digest},
                     'component_accounting.json': accounting, 'baseline_component_accounting.json': component_accounting(job, plan),
                     'native-inspection-work.json': candidate_review.get('nativeInspectionWork'),
+                    'pad-binding-work.json': binding_work,
                     'candidate-native-accounting.json': candidate_review.get('nativeAccounting'),
                     'qualification.json': {'originalXmlByteRecovery': 'passed', 'archivePayloadAndMetadataPreservation': 'passed',
                     'newPlacementMasterWindowClosure': 'passed', 'newInspectionEnabled': False,
+                    'preparedWithCompleteTemplateWindowCopy': sum(i['dependencies']['windowPreparation'] == 'complete-template-window-copy' for i in applied),
+                    'preparedWithPartialWindows': sum(i['dependencies']['windowPreparation'] == 'partial-closed-window-subset' for i in applied),
                     'padBinding': 'unresolved', 'dependentWindowGeometry': 'unverified', 'EagleOpenSaveReopen': 'not-performed',
                     'opticalTeaching': 'not-transferred', 'machineValidation': 'not-performed', 'release': 'not-granted'}}.items():
                 bundle.writestr(name, json.dumps(document, ensure_ascii=True, indent=2))
             bundle.writestr('component_coverage.csv', _csv(accounting))
-            bundle.writestr('remaining_work.csv', _csv([{'reference': item['reference'], 'module': item['module'], 'status': item['status'], 'remaining': item['remaining']} for item in accounting] + _remaining_rows(candidate_review)))
+            bundle.writestr('remaining_work.csv', _csv([{'reference': item['reference'], 'module': item['module'], 'status': item['status'], 'remaining': item['remaining'], 'omittedWindows': item['omittedWindows']} for item in accounting] + _remaining_rows(candidate_review)))
             bundle.writestr('START_HERE.txt', 'QUALIFICATION ONLY — DISABLED NATIVE PART PREPARATION\n'
                 'CANDIDATE.zip is a complete separate copy of the original native tree. Never overwrite the original, live machine job or shared library.\n'
                 'Only individually accepted new placements, job-local Masters and disabled windows are appended. Existing teaching is byte-preserved.\n'
+                'Partial-window preparations explicitly list omitted template windows and their causes; these remain unfinished Eagle work, not intentional inspection exclusions.\n'
                 'New binding/FOV lists and algorithms are empty. Template local geometry, origins and other settings are retained as unqualified preparation.\n'
                 'Temp/backup snapshots still contain ORIGINAL state; never silently substitute them.\n'
                 'At Eagle verify disabled placement identities, local origin and every dependent window, assign owned pads/FOVs and perform image-dependent teaching.\n'

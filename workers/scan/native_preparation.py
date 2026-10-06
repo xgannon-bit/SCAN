@@ -17,8 +17,10 @@ from .accel_ascii import read_accel
 from .disabled_draft import _one, _text, _number, _record, _rectangle, _set, _decimal, _closing_offsets, recipe_digest
 from .qualification_candidate import _xml, _canonical, _fail
 from .snapshot_capture import CaptureBlocked
+from .native_model_geometry import derive_model_geometry, equivalent_source_geometry
+from .native_window_subset import closed_window_subset
 
-PROFILE = 'job-local-same-footprint-disabled-1'
+PROFILE = 'job-local-owned-footprint-disabled-2'
 # Observed field names describe the schema contract, never a private job oracle.
 COMMON = set('BkBDLv CntSeparatedX CntSeparatedY ColorRangeMax ColorRangeMin ColorXYID CommonCategory DetailInsp FCtgr FiducialID FovList IsFidu LinkagePart MTLOPT MTrendline MasterKey Name No OCRFontAngle OCRRate OCRWindowCheck PackageName PartCode PatternFiduID PropType RefID RefPartNo RefPartNo2 Roi SWIR SeparatedPart TalHei Toler3DV TypeShape U3G UseColorRange UseFontAngle UsePatternFidu VerPart3DOPT ZMapROIData eUserLevel'.split())
 PART = COMMON | set('CenterPosX CenterPosY ENABLE FovOPT Gap Gen2D Gen3D Grp3D ID OCRWindowCheck ParentId ProtectApply SubFovNum UseSlave WND_PAD Zero ptSetPolarPos'.split())
@@ -76,9 +78,67 @@ def _footprint(placed):
     # Pattern identity AND freshly parsed owned local pad outlines. Board points,
     # reference strings and anchors are intentionally outside this signature.
     return {'pattern': placed['patternRef'], 'graphics': placed['patternGraphicsNameRef'],
-            'pads': [{k: v for k, v in pad.items() if k not in ('sourcePath', 'sourceBoardPoint')}
+            'pads': [{k: v for k, v in pad.items() if k not in ('sourcePath', 'sourceBoardPoint', 'sourceBoardRotationDegrees')}
                      for layer in placed['explicitLayerGeometry'] for pad in layer['pads']],
             'layers': [(layer['layerNumber'], len(layer['pads'])) for layer in placed['explicitLayerGeometry']]}
+
+
+def _coverage(j, layout, items):
+    """Every CAD scope gets a reason, including scopes without any proposal.
+
+    Drill evidence is not a population exclusion. Engineering BOM population
+    belongs to its separately hash-bound source reconciliation, not this writer.
+    """
+    parts = j.findall('PartDataList/PartData')
+    placements = layout['placements']
+    scopes = Counter((_text(c, 'ModuleID'), _text(c, 'RefID')) for c in j.findall('CadData/CpList/Cp'))
+    selected = {(i['selection']['moduleId'], i.get('reference')): i for i in items}
+    rows = []
+    for cad in j.findall('CadData/CpList/Cp'):
+        ref, module = _text(cad, 'RefID'), _text(cad, 'ModuleID')
+        actual = [p for p in parts if _text(p, 'ParentId') == module and _text(p, 'RefID') == ref]
+        sources = [p for p in placements if p['refdes'] == ref]
+        source = sources[0] if len(sources) == 1 else None
+        evidence = {'sourcePath': source['sourcePath'] if source else None,
+                    'mountingEvidence': source.get('mountingEvidence', 'unknown') if source else 'unknown',
+                    'identityHoldCodes': sorted({h['code'] for h in source.get('identityHolds', [])}) if source else [],
+                    'ownedPadCentersAvailable': bool(source and source.get('ownedPadCentersAvailable')),
+                    'explicitLayerOutlinesAvailable': bool(source and source.get('explicitLayerGeometry'))}
+        item = selected.get((module, ref))
+        code, reason = None, None
+        if actual:
+            state = 'existing-duplicate-scope-preserved' if len(actual) > 1 else 'existing-structure-preserved'
+        elif scopes[(module, ref)] != 1:
+            state, code, reason = 'held', 'PREPARATION_CAD_AMBIGUOUS', 'The module/reference has multiple native CAD records; resolve that scope before creating a placement.'
+        elif len(sources) != 1:
+            state, code, reason = 'held', 'PREPARATION_SOURCE_IDENTITY', 'Exactly one source-owned layout placement is required for this literal reference.'
+        elif source.get('identityHolds') or not source.get('ownedPadCentersAvailable'):
+            state, code, reason = 'held', 'PREPARATION_SOURCE_GEOMETRY', 'Source ownership or pad centers are held: ' + ', '.join(sorted({h['code'] for h in source.get('identityHolds', [])}))
+        elif source.get('mountingEvidence') == 'hole-bearing':
+            state, code, reason = 'held', 'PREPARATION_THROUGH_HOLE', 'Source drill evidence is nonzero. The surface-pad adapter does not create this model; decide stage-specific inspection separately.'
+        elif source.get('mountingEvidence') != 'explicit-zero-holes':
+            state, code, reason = 'held', 'PREPARATION_DRILL_UNKNOWN', 'Explicit zero-hole evidence is required by this surface-pad adapter.'
+        elif not source.get('explicitLayerGeometry'):
+            state, code, reason = 'held', 'PREPARATION_LAYER_GEOMETRY', 'Complete numbered-layer owned outlines are unavailable; no inspection geometry is invented.'
+        elif item:
+            state = item['status']
+            code, reason = item.get('code'), item.get('reason')
+        else:
+            templates = []
+            for part in parts:
+                if _text(part, 'ParentId') != module:
+                    continue
+                origins = [p for p in placements if p['refdes'] == _text(part, 'RefID')]
+                if len(origins) == 1 and origins[0].get('explicitLayerGeometry') and _footprint(origins[0]) == _footprint(source):
+                    templates.append(part)
+            state = 'held'
+            if templates:
+                code, reason = 'PREPARATION_ANGLE_TEMPLATE', 'The source-owned footprint has existing native templates, but none supplies the supported native CAD angle and origin contract.'
+            else:
+                code, reason = 'PREPARATION_MODEL_GEOMETRY', 'No existing source-owned identical footprint model is present. A supported model/window geometry contract is required for this family.'
+        rows.append({'reference': ref, 'module': module, 'nativeCadId': _text(cad, 'ID'),
+                     'state': state, 'holdCode': code, 'holdReason': reason, **evidence})
+    return rows
 
 
 def _plan(j, m, layout, choice, allocate):
@@ -108,11 +168,7 @@ def _plan(j, m, layout, choice, allocate):
     for p in (target, origin):
         if p['identityHolds'] or not p['ownedPadCentersAvailable'] or p['mountingEvidence'] != 'explicit-zero-holes' or not p['explicitLayerGeometry']:
             _fail('PREPARATION_SOURCE', 'Unique unflipped, zero-hole source-owned explicit outlines are required.')
-    if _footprint(target) != _footprint(origin) or target['rotation'] != origin['rotation'] or target['side'] != origin['side']:
-        _fail('PREPARATION_FOOTPRINT', 'Footprint ownership, source orientation and side must match exactly; names alone are insufficient.')
     tc, oc = _cad(j, target['refdes'], module), _cad(j, ref, module)
-    if (_number(tc, 'Ang') - _number(oc, 'Ang')) % 360 != 0:
-        _fail('PREPARATION_ANGLE', 'This adapter supports translation in the existing native CAD frame, without rotation inference.')
     _contract(part, PART); _contract(model, MODEL); _neutral(part, model)
     for node in (part, model):
         if _text(node, 'Name') != _text(oc, 'PrntPartName') or _text(node, 'PartCode') != _text(oc, 'PrntPartName'):
@@ -121,6 +177,7 @@ def _plan(j, m, layout, choice, allocate):
     _number(part, 'CenterPosX'); _number(part, 'CenterPosY')
     for axis in ('X', 'Y'):
         _number(model, 'CadOffset/' + axis)
+    geometry = derive_model_geometry(target, origin, part, model, tc, oc)
     windows = [w for w in m.findall('WindowDataList/WindowData') if _text(w, 'ParentId') == choice['templateMasterKey']]
     if not windows or len(windows) > 256:
         _fail('PREPARATION_WINDOWS', 'A bounded complete template window set is required.')
@@ -129,12 +186,16 @@ def _plan(j, m, layout, choice, allocate):
         _fail('PREPARATION_WINDOW_ID', 'Template window IDs are not unique within the selected Master scope.')
     for w in windows:
         _contract(w, WINDOW); _rectangle(w, 'RelRoi')
-        if _text(w, 'ParentWndId') not in {'0', *ids} or (_one(w, 'AlignWndID').text or '') not in {'', *ids}:
-            _fail('PREPARATION_WINDOW_LINK', 'A template window has a dependency outside the selected local model.')
         if not re.fullmatch(r'(?:0|[1-9][0-9]{0,8})', _text(w, 'GroupID')):
             _fail('PREPARATION_WINDOW_LINK', 'A noncanonical window group identity cannot be transferred.')
         if _text(w, 'UseWndPoly') not in {'False', '0'}:
             _fail('PREPARATION_POLYGON', 'Polygon window geometry is outside this rectangle profile.')
+    subset = closed_window_subset(windows)
+    all_windows, windows = windows, subset['retained']
+    ids = [_text(w, 'ID') for w in windows]
+    for omitted in subset['omitted']:
+        original = all_windows[omitted['templateWindowOrdinal'] - 1]
+        omitted['templateAlgorithmsNotTransferred'] = len(_one(original, 'AlgorithmDataList'))
     pid, key, number = allocate(), allocate(), allocate()
     # The source reuses local window keys across different Masters. These are
     # not global placement identities (real keys can be alphabetic). Keep their
@@ -142,31 +203,25 @@ def _plan(j, m, layout, choice, allocate):
     wid_map = {wid: wid for wid in ids}
     gid_map = {gid: gid for gid in sorted({_text(w, 'GroupID') for w in windows}) if gid != '0'}
     newpart, newmodel = deepcopy(part), deepcopy(model)
-    dx, dy = _number(tc, 'X') - _number(oc, 'X'), _number(tc, 'Y') - _number(oc, 'Y')
-    if any(abs(value) > 1e6 for value in (roi['cx'] + dx, roi['cy'] + dy,
-            _number(part, 'CenterPosX') + dx, _number(part, 'CenterPosY') + dy)):
-        _fail('PREPARATION_GEOMETRY', 'The translated native placement exceeds the bounded coordinate range.')
     name = _text(tc, 'PrntPartName')
     for node in (newpart, newmodel):
         for path, value in {'MasterKey': key, 'RefID': target['refdes'], 'Name': name, 'PartCode': name, 'No': number}.items():
             _set(node, path, value)
-    for path, value in {'ID': pid, 'ENABLE': 'False', 'Roi/cx': _decimal(roi['cx'] + dx), 'Roi/cy': _decimal(roi['cy'] + dy),
-                        'CenterPosX': _decimal(_number(part, 'CenterPosX') + dx), 'CenterPosY': _decimal(_number(part, 'CenterPosY') + dy)}.items():
+    for path, value in {'ID': pid, 'ENABLE': 'False', **geometry['partUpdates']}.items():
         _set(newpart, path, value)
     for child in newpart:
         if child.tag in {'WND_PAD', 'FovList'} or child.tag.startswith(('ListGerPadId', 'ListGerbPadId')):
             child.clear()
     newwindows = []
-    omitted_algorithms = 0
+    omitted_algorithms = sum(len(_one(w, 'AlgorithmDataList')) for w in all_windows)
     for w in windows:
         new = deepcopy(w)
         for path, value in {'ID': wid_map[_text(w, 'ID')], 'ParentId': key, 'ENABLE': 'False',
-                            'ParentWndId': wid_map.get(_text(w, 'ParentWndId'), '0'),
-                            'GroupID': gid_map.get(_text(w, 'GroupID'), '0'),
-                            'AlignWndID': wid_map.get(_one(w, 'AlignWndID').text or '', '')}.items():
+                            'ParentWndId': _text(w, 'ParentWndId'),
+                            'GroupID': _text(w, 'GroupID'),
+                            'AlignWndID': _one(w, 'AlignWndID').text or ''}.items():
             _set(new, path, value)
         algorithms = _one(new, 'AlgorithmDataList')
-        omitted_algorithms += len(algorithms)
         algorithms.clear()
         newwindows.append(new)
     changes = []
@@ -180,11 +235,14 @@ def _plan(j, m, layout, choice, allocate):
              'moduleId': module, 'windowIds': list(wid_map.values()), 'groupIds': list(gid_map.values()),
              'windowKeyPolicy': 'exact-template-local-keys-in-new-master-scope',
              'groupKeyPolicy': 'exact-template-local-groups-in-new-master-scope',
+             'windowPreparation': 'complete-template-window-copy' if subset['complete'] else 'partial-closed-window-subset',
+             'omittedWindows': subset['omitted'], 'windowSubsetAdapter': subset['profile'],
              'newAlgorithms': 0, 'templateAlgorithmsNotTransferred': omitted_algorithms, 'sharedLibrariesChanged': False},
             'basis': {'footprint': _footprint(target), 'nativeCadTargetId': _text(tc, 'ID'), 'nativeCadTemplateId': _text(oc, 'ID'),
-                      'translationNativeMm': [dx, dy], 'originOffsetPreserved': True,
+                      **geometry['basis'], 'geometryAdapter': geometry['profile'],
                       'polarPositionPolicy': 'copied-template-unqualified-not-translated', 'modelNoPolicy': 'preserved-template-setting-unqualified'},
-            'prepared': 'disabled-placement-model-and-local-window-structure', 'remaining': REMAINING,
+            'prepared': 'disabled-placement-model-and-local-window-structure' if subset['complete'] else 'disabled-placement-model-and-partial-local-window-structure',
+            'remaining': REMAINING + geometry['remaining'] + subset['remaining'],
             'qualificationOnly': True, 'machineExportAllowed': False}
 
 
@@ -223,7 +281,8 @@ def plan_preparation(job, master, pcb, choices):
                           'code': error.code, 'reason': str(error)})
     return json.loads(_canonical({'artifactType': 'scan.native-preparation-plan', 'schemaVersion': '1', 'profile': PROFILE,
         'source': {'jobSha256': sha256(job).hexdigest(), 'masterSha256': sha256(master).hexdigest(), 'layoutSha256': sha256(pcb).hexdigest()},
-        'choices': choices, 'items': items, 'remaining': REMAINING, 'qualificationOnly': True, 'machineExportAllowed': False}))
+        'choices': choices, 'items': items, 'coverage': _coverage(j, layout, items),
+        'remaining': REMAINING, 'qualificationOnly': True, 'machineExportAllowed': False}))
 
 
 def apply_preparation(job, master, pcb, recipe, accepted_digest):
@@ -293,14 +352,13 @@ def suggest_choices(job, pcb):
             templates = []
             for part in parts:
                 origins = [p for p in layout['placements'] if p['refdes'] == _text(part, 'RefID')]
-                if _text(part, 'ParentId') == module and len(origins) == 1 and origins[0]['patternRef'] == target['patternRef']:
+                if _text(part, 'ParentId') == module and len(origins) == 1:
                     try:
-                        oc = _cad(root, _text(part, 'RefID'), module)
-                        if (_number(cad, 'Ang') - _number(oc, 'Ang')) % 360 == 0:
+                        if equivalent_source_geometry(target, origins[0]):
                             templates.append(part)
                     except CaptureBlocked:
                         pass
-            # Expose every same-angle candidate; review adapter chooses a supported
+            # Expose every exact-local-geometry candidate; review chooses a supported
             # one rather than hiding alternatives behind a literal package name.
             for part in templates:
                 choices.append({'targetSourcePath': target['sourcePath'], 'moduleId': module,
@@ -322,14 +380,25 @@ def automatic_plan(job, master, pcb):
     chosen = []
     for options in alternatives.values():
         preferred = options[0]
+        preferred_code = None
+        partial = None
         for choice in options:
             trial_ids = iter(map(str, range(900_000_000, 900_001_000)))
             try:
-                _plan(j, m, layout, choice, lambda: next(trial_ids))
-                preferred = choice
-                break
-            except CaptureBlocked:
-                continue
+                result = _plan(j, m, layout, choice, lambda: next(trial_ids))
+                if result['dependencies']['windowPreparation'] == 'complete-template-window-copy':
+                    preferred = choice
+                    partial = None
+                    break
+                if partial is None:
+                    partial = choice
+            except CaptureBlocked as error:
+                # A real unique template's geometry hold is more useful than
+                # hiding it behind the first duplicated template encountered.
+                if preferred_code is None or preferred_code == 'PREPARATION_TEMPLATE_DUPLICATE' and error.code != 'PREPARATION_TEMPLATE_DUPLICATE':
+                    preferred, preferred_code = choice, error.code
+        if partial is not None:
+            preferred = partial
         chosen.append(preferred)
     return plan_preparation(job, master, pcb, chosen)
 
@@ -343,24 +412,31 @@ def component_accounting(job, plan, accepted=()):
                 if item.get('digest') in accepted and item['status'] == 'ready-for-review'}
     pending = {(item['selection']['moduleId'], item.get('reference')): item for item in plan['items'] if item['status'] == 'ready-for-review'}
     held = {(item['selection']['moduleId'], item.get('reference')): item for item in plan['items'] if item['status'] == 'held'}
+    coverage = {(item['module'], item['reference']): item for item in plan.get('coverage', [])}
     rows = []
     for cad in j.findall('CadData/CpList/Cp'):
         ref, module = _text(cad, 'RefID'), _text(cad, 'ModuleID')
         actual = [p for p in parts if _text(p, 'RefID') == ref and _text(p, 'ParentId') == module]
         item = prepared.get((module, ref))
+        source = coverage.get((module, ref), {})
         if item and (len(actual) != 1 or _text(actual[0], 'ID') != item['dependencies']['partId'] or
                      _text(actual[0], 'MasterKey') != item['dependencies']['masterKey'] or _text(actual[0], 'ENABLE') != 'False'):
             _fail('PREPARATION_ACCOUNTING', 'Prepared status requires exactly the actual newly inserted disabled placement identity.')
         rows.append({'reference': ref, 'module': module, 'nativeCadId': _text(cad, 'ID'),
                      'placementIds': [_text(p, 'ID') for p in actual], 'masterKeys': [_text(p, 'MasterKey') for p in actual],
-                     'status': 'prepared-disabled' if item else 'existing-structure-preserved' if actual else 'proposal-awaiting-review' if (module, ref) in pending else 'held-no-supported-template',
+                     'status': ('prepared-partial-disabled' if item['dependencies']['windowPreparation'] == 'partial-closed-window-subset' else 'prepared-disabled') if item else 'existing-structure-preserved' if actual else 'proposal-awaiting-review' if (module, ref) in pending else 'held-no-supported-template',
+                     'windowPreparation': item['dependencies']['windowPreparation'] if item else None,
+                     'omittedWindows': item['dependencies']['omittedWindows'] if item else [],
                      'prepared': item['prepared'] if item else None, 'existingTeaching': 'preserved-unverified' if actual and not item else 'not-transferred',
                      'population': 'unresolved', 'intentionallyExcluded': False, 'enabledNewInspection': False,
                      'remaining': item['remaining'] if item else ['population-and-existing-teaching-review', 'machine-verification-required'] if actual else ['native-model-preparation-required', 'population-decision-required'],
-                     'holdCode': held.get((module, ref), {}).get('code') if not actual else None,
+                     'mountingEvidence': source.get('mountingEvidence', 'unknown'),
+                     'sourcePath': source.get('sourcePath'),
+                     'holdCode': (source.get('holdCode') or held.get((module, ref), {}).get('code')) if not actual else None,
+                     'holdReason': source.get('holdReason') if not actual else None,
                      'nextAction': 'Review new origin/local windows, bind owned pads/FOVs and teach image algorithms at Athena.' if item else
                          'Review existing teaching and duplicate/shared scope; preserve the current work.' if actual else
                          'Review and accept the exact disabled preparation proposal.' if (module, ref) in pending else
-                         held.get((module, ref), {}).get('reason', 'Provide a compatible same-angle job-local template or prepare this unsupported model at Athena.'),
+                         source.get('holdReason') or held.get((module, ref), {}).get('reason', 'Provide a compatible job-local template or prepare this unsupported model at Athena.'),
                      'machineValidated': False, 'released': False})
     return rows

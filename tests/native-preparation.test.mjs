@@ -8,6 +8,7 @@ import { validateNativePreparationSession } from '../lib/scan/native-preparation
 import { makeArchive, syntheticMembers, syntheticSelection } from './synthetic-archive.mjs';
 
 import { authoredPreparation } from './native-preparation-fixture.mjs';
+import { readCandidateWork } from '../lib/scan/engineering-candidate-work.ts';
 
 test('browser worker rechecks full proposals and exports only accepted disabled source-derived parts', async () => {
   const fixture = authoredPreparation();
@@ -29,6 +30,13 @@ test('browser worker rechecks full proposals and exports only accepted disabled 
   assert.equal(response.headers.get('X-SCAN-Native-Edits'), 'qualification-only');
   const output = Buffer.from(await response.arrayBuffer());
   assert.equal(Buffer.from(await crypto.subtle.digest('SHA-256', output)).toString('hex'), response.headers.get('X-SCAN-SHA256'));
+  const candidateWork=await readCandidateWork(new Blob([output]), response.headers.get('X-SCAN-Candidate-SHA256'),hash,checked.plan.items,proposal.accepted);
+  assert.equal(candidateWork.accounting.filter(r=>r.status==='prepared-disabled').length,1);
+  assert.equal(candidateWork.bindingWork.components.find(r=>r.reference==='N1').nativePlacementCount,1);
+  assert.ok(!candidateWork.bindingWork.components.find(r=>r.reference==='N1').holdCodes.includes('BINDING_NATIVE_PART_MISSING'));
+  assert.equal(candidateWork.bindingWork.components.find(r=>r.reference==='N2').nativePlacementCount,0);
+  await assert.rejects(readCandidateWork(new Blob([output]), '0'.repeat(64),hash,checked.plan.items,proposal.accepted));
+  await assert.rejects(readCandidateWork(new Blob([output]), response.headers.get('X-SCAN-Candidate-SHA256'),hash,checked.plan.items,[]));
   const python = path.join(process.cwd(), '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
   const verify = spawnSync(python, ['-c', `import zipfile,io,json,sys
 with zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())) as z:

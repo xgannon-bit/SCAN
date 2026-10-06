@@ -23,9 +23,15 @@ Source-family review now connects to complete disabled native part preparation.
 The job-local same-footprint adapter derives a new placement, local Master and
 linked windows from a compatible source-owned template using the native CAD frame.
 Individual review/apply, complete candidate transport, actual candidate accounting,
-remaining native work and saved decisions/history are integrated. Different
-rotation, unsupported or missing template families remain held. New bindings/FOV
-lists and algorithms remain empty. Eagle compatibility and teaching are unverified.
+remaining native work and saved decisions/history are integrated. Exact owned
+source geometry can support translation or a strictly witnessed cardinal rotation;
+unqualified origins, rotations and missing template families remain held. A closed
+window subset can prepare a partial model when external dependencies are excluded
+with their affected groups and dependents. Exact omissions remain unfinished Eagle
+work, never approved exclusions. Component-by-component exports use freshly parsed
+candidate placements, Masters, windows and binding diagnostics. Pad ownership and
+native/source frame qualification remain held; new bindings/FOV lists and algorithms
+remain empty. Eagle compatibility and teaching are unverified.
 See [disabled native preparation](disabled-draft-preparation.md) for the exact
 contract and qualification boundaries.
 

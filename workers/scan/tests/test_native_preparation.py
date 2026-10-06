@@ -175,6 +175,87 @@ class NativePreparationTests(unittest.TestCase):
         out = apply_preparation(raw, self.master, self.pcb, recipe, recipe_digest(recipe))
         self.assertEqual(ET.fromstring(out['job']).findall('PartDataList/PartData')[-1].findtext('ptSetPolarPos/X'), '0.02')
 
+    def test_complete_cad_accounting_reports_scopes_with_no_template_and_drill_separately(self):
+        source = self.pcb.replace(b'(refDesRef "N2")', b'(refDesRef "ABSENT")')
+        plan = self.review(pcb=source)
+        rows = component_accounting(self.job, plan)
+        missing = next(r for r in rows if r['reference'] == 'N2')
+        self.assertEqual(missing['holdCode'], 'PREPARATION_SOURCE_IDENTITY')
+        drilled = self.review(pcb=self.pcb.replace(b'(holeDiam 0)', b'(holeDiam .8)'))
+        rows = component_accounting(self.job, drilled)
+        self.assertEqual(next(r for r in rows if r['reference'] == 'N1')['holdCode'], 'PREPARATION_THROUGH_HOLE')
+        self.assertFalse(any(r['intentionallyExcluded'] for r in rows))
+
+    def test_review_apply_cardinal_trial_keeps_master_windows_and_zero_center_literals(self):
+        job, master = ET.fromstring(self.job), ET.fromstring(self.master)
+        part, model = job.find('PartDataList/PartData'), master.find('PartDataList/PartData')
+        for path, value in {'Roi/cx': '10', 'Roi/cy': '20', 'Roi/a': '90', 'CenterPosX': '-0.000', 'CenterPosY': '0.00'}.items():
+            part.find(path).text = value
+        for path, value in {'Roi/a': '90', 'CadOffset/X': '0', 'CadOffset/Y': '0'}.items():
+            model.find(path).text = value
+        job.findall('CadData/CpList/Cp')[1].find('Ang').text = '180'
+        source = self.pcb.replace(pattern(ref='N1').encode(), pattern(ref='N1', angle='0').encode())
+        jraw, mraw = ET.tostring(job), ET.tostring(master)
+        plan = self.review(job=jraw, master=mraw, pcb=source)
+        item = next(i for i in plan['items'] if i['reference'] == 'N1')
+        self.assertEqual(item['status'], 'ready-for-review')
+        recipe = {**plan, 'accepted': [item['digest']]}
+        output = apply_preparation(jraw, mraw, source, recipe, recipe_digest(recipe))
+        newpart = ET.fromstring(output['job']).findall('PartDataList/PartData')[-1]
+        newmodel = ET.fromstring(output['master']).findall('PartDataList/PartData')[-1]
+        self.assertEqual(newpart.findtext('Roi/a'), '180')
+        self.assertEqual(newpart.findtext('Roi/cx'), '30')
+        self.assertEqual(newpart.findtext('CenterPosX'), '-0.000')
+        self.assertEqual(newpart.findtext('CenterPosY'), '0.00')
+        self.assertEqual(ET.tostring(newmodel.find('Roi')), ET.tostring(model.find('Roi')))
+        self.assertEqual(item['basis']['nativeLengthUnit'], 'unqualified')
+        self.assertIn('native-rotation-model-window-frame-unverified', item['remaining'])
+
+    def test_partial_window_creation_preserves_original_bad_link_and_reports_exact_omission(self):
+        master = ET.fromstring(self.master)
+        oldwindows = master.findall('WindowDataList/WindowData')
+        oldwindows[1].find('ParentWndId').text = '700'
+        oldwindows[1].find('GroupID').text = '10'
+        raw = ET.tostring(master); plan = self.review(master=raw)
+        item = plan['items'][0]
+        self.assertEqual(item['status'], 'ready-for-review')
+        self.assertEqual(item['dependencies']['windowIds'], ['20'])
+        self.assertEqual(item['dependencies']['windowPreparation'], 'partial-closed-window-subset')
+        self.assertEqual(item['dependencies']['omittedWindows'][0]['windowId'], '21')
+        self.assertEqual(item['dependencies']['omittedWindows'][0]['templateAlgorithmsNotTransferred'], 1)
+        recipe = {**plan, 'accepted': [item['digest']]}
+        output = apply_preparation(self.job, raw, self.pcb, recipe, recipe_digest(recipe))
+        result = ET.fromstring(output['master'])
+        self.assertEqual(result.findall('WindowDataList/WindowData')[1].findtext('ParentWndId'), '700')
+        newwindows = [w for w in result.findall('WindowDataList/WindowData') if w.findtext('ParentId') == item['dependencies']['masterKey']]
+        self.assertEqual(len(newwindows), 1)
+        self.assertEqual(newwindows[0].findtext('ID'), '20')
+        self.assertEqual(len(newwindows[0].find('AlgorithmDataList')), 0)
+        row = next(r for r in component_accounting(output['job'], plan, recipe['accepted']) if r['reference'] == 'N1')
+        self.assertEqual(row['status'], 'prepared-partial-disabled')
+        self.assertEqual(row['omittedWindows'][0]['windowId'], '21')
+        self.assertIn('omitted-window-creation-and-teaching-required', row['remaining'])
+
+    def test_full_alternative_is_preferred_over_first_partial_template(self):
+        job, master = ET.fromstring(self.job), ET.fromstring(self.master)
+        part = deepcopy(job.find('PartDataList/PartData'))
+        for field, value in {'ID': '700', 'MasterKey': '701', 'RefID': 'T2', 'No': '702'}.items(): part.find(field).text = value
+        job.find('PartDataList').append(part)
+        cad = deepcopy(job.find('CadData/CpList/Cp')); cad.find('ID').text = '710'; cad.find('RefID').text = 'T2'
+        job.find('CadData/CpList').append(cad)
+        model = deepcopy(master.find('PartDataList/PartData'))
+        for field, value in {'MasterKey': '701', 'RefID': 'T2', 'No': '702'}.items(): model.find(field).text = value
+        master.find('PartDataList').append(model)
+        for old in list(master.findall('WindowDataList/WindowData')):
+            new = deepcopy(old); new.find('ParentId').text = '701'; master.find('WindowDataList').append(new)
+        bad = master.findall('WindowDataList/WindowData')[1]
+        bad.find('ParentWndId').text = '900'; bad.find('GroupID').text = '10'
+        source = pcb(placements=''.join(pattern(ref=r) for r in ['T1', 'T2', 'N1', 'N2']),
+                     components=''.join(f'(compInst "{r}" (compRef "invented") (originalName "{r}"))' for r in ['T1', 'T2', 'N1', 'N2']))
+        plan = self.review(job=ET.tostring(job), master=ET.tostring(master), pcb=source)
+        self.assertTrue(all(i['templateReference'] == 'T2' for i in plan['items']))
+        self.assertTrue(all(i['dependencies']['windowPreparation'] == 'complete-template-window-copy' for i in plan['items']))
+
     def test_shared_master_existing_teaching_and_archive_payloads_preserved(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp); source = folder/'original.zip'; dest = folder/'parts.scan-draft-qualification.zip'

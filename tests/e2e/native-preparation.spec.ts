@@ -25,7 +25,7 @@ test('complete disabled part models apply individually and decisions/history reo
   await page.getByRole('navigation', { name: 'SCAN screens' }).getByRole('link', { name: 'Repair Review', exact: true }).click();
   const region = page.getByRole('region', { name: 'Native part preparation', exact: true });
   await region.getByRole('button', { name: 'Find supported native preparation', exact: true }).click();
-  await expect(region).toContainText('2 complete part proposals ready for review');
+  await expect(region).toContainText('2 proposals retain the full template window set');
   const apply = region.getByRole('button', { name: 'Apply accepted part preparation to a separate candidate', exact: true });
   await expect(apply).toBeDisabled();
   await region.getByLabel('Preparation reviewer', { exact: true }).fill('Authored browser reviewer');
@@ -41,6 +41,12 @@ test('complete disabled part models apply individually and decisions/history reo
 with zipfile.ZipFile(sys.argv[1]) as outer:
  assert outer.testzip() is None
  project=outer.read('SCAN.scan-project.json');pathlib.Path(sys.argv[2]).write_bytes(project)
+ work=json.loads(outer.read('component-by-component-Eagle-work.json'))
+ assert work['counts']['preparedReferences']==1
+ assert len(work['rows'])==3 and work['inspectionRepairEstablished'] is False
+ assert next(r for r in work['rows'] if r['reference']=='N1')['nativeCreation']=='prepared-offline'
+ assert next(r for r in work['rows'] if r['reference']=='N2')['nativeCreation']=='proposal-awaiting-review'
+ assert 'component-by-component-Eagle-work.csv' in outer.namelist()
  saved=json.loads(project)['nativePreparation'];assert len(saved['history'])==1
  assert len(saved['history'][0]['accepted'])==1
  with zipfile.ZipFile(io.BytesIO(outer.read('engineering-QUALIFICATION-ONLY.zip'))) as bundle:
@@ -63,7 +69,7 @@ with zipfile.ZipFile(sys.argv[1]) as outer:
   await expect(region).toContainText('Saved exact decisions are retained');
   await expect(region).toContainText('Prepared candidate history · 1');
   await region.getByRole('button', { name: 'Find supported native preparation', exact: true }).click();
-  await expect(region).toContainText('2 complete part proposals ready for review');
+  await expect(region).toContainText('2 proposals retain the full template window set');
   await region.getByText('N1 · disabled model proposal', { exact: true }).click();
   await expect(region.getByRole('combobox', { name: 'Decision for N1', exact: true })).toHaveValue('accepted');
   await expect(apply).toBeDisabled();
@@ -72,4 +78,55 @@ with zipfile.ZipFile(sys.argv[1]) as outer:
   await expect(projectStatus).toContainText('1 parts recorded as prepared in the latest matching candidate receipt');
   await expect(projectStatus.getByRole('link', { name: 'Review remaining native preparation and Athena work', exact: true })).toBeVisible();
   expect(errors).toEqual([]); expect(external).toEqual([]);
+});
+
+test('partial window preparation shows exact omissions and exports actual unfinished Eagle work', async ({ page }, info) => {
+  const fixture = authoredPreparation();
+  fixture.master = fixture.master.replace(/<WindowData>[\s\S]*?<\/WindowData>/g, (window: string) => window.includes('<ID>21</ID>')
+    ? window.replace('<ParentWndId>20</ParentWndId>', '<ParentWndId>700</ParentWndId>').replace('<GroupID>9</GroupID>', '<GroupID>10</GroupID>') : window);
+  await page.goto('/intake');
+  const archive = page.getByRole('region', { name: 'Existing native job archive', exact: true });
+  await archive.getByLabel('Native job archive (.zip)').setInputFiles({ name: 'authored-partial.zip', mimeType: 'application/zip', buffer: makeArchive({ ...syntheticMembers, [syntheticSelection.jobMember]: fixture.job, [syntheticSelection.masterMember]: fixture.master }) });
+  await archive.getByRole('button', { name: 'Inventory archive', exact: true }).click();
+  await archive.getByRole('combobox', { name: 'Job root', exact: true }).selectOption(syntheticSelection.root);
+  await archive.getByRole('combobox', { name: 'Job snapshot', exact: true }).selectOption(JSON.stringify({ role: 'main', member: syntheticSelection.jobMember }));
+  await archive.getByRole('combobox', { name: 'Master snapshot', exact: true }).selectOption(JSON.stringify({ role: 'main', member: syntheticSelection.masterMember }));
+  await archive.getByRole('button', { name: 'Capture and verify selection' }).click();
+  await expect(archive.getByRole('heading', { name: 'Snapshot integrity verified; native preparation blocked' })).toBeVisible();
+  await page.getByLabel('Source layout (.pcb)').setInputFiles({ name: 'authored.pcb', mimeType: 'text/plain', buffer: Buffer.from(fixture.pcb) });
+  await page.getByRole('button', { name: 'Read source layout', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: '3 source placements' })).toBeVisible();
+  await page.getByRole('navigation', { name: 'SCAN screens' }).getByRole('link', { name: 'Repair Review', exact: true }).click();
+  const region = page.getByRole('region', { name: 'Native part preparation', exact: true });
+  await region.getByRole('button', { name: 'Find supported native preparation', exact: true }).click();
+  await expect(region).toContainText('2 additional proposals have explicitly partial local windows');
+  await region.getByLabel('Preparation reviewer', { exact: true }).fill('Authored partial reviewer');
+  await region.getByText('N1 · disabled model proposal', { exact: true }).click();
+  await expect(region).toContainText('Partial window preparation.');
+  await expect(region).toContainText('21: external-parent-window');
+  await region.getByRole('combobox', { name: 'Decision for N1', exact: true }).selectOption('accepted');
+  await region.getByRole('checkbox', { name: /I acknowledge qualification-only output/ }).check();
+  const pending = page.waitForEvent('download');
+  await region.getByRole('button', { name: 'Apply accepted part preparation to a separate candidate', exact: true }).click();
+  const download = await pending, packagePath = info.outputPath('authored-partial.zip'); await download.saveAs(packagePath);
+  const python = path.join(process.cwd(), '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+  const check = spawnSync(python, ['-c', `import zipfile,json,sys,io,xml.etree.ElementTree as E
+with zipfile.ZipFile(sys.argv[1]) as outer:
+ work=json.loads(outer.read('component-by-component-Eagle-work.json'))
+ assert work['counts']['preparedWithPartialWindows']==1 and work['counts']['preparedWithCompleteTemplateWindowCopy']==0
+ row=next(r for r in work['rows'] if r['reference']=='N1')
+ assert row['state']=='prepared-partial-disabled' and len(row['windows'])==1
+ assert row['omittedWindows'][0]['windowId']=='21' and row['intentionallyExcluded'] is False
+ assert any('21 (external-parent-window)' in step for step in row['atEagle'])
+ assert 'BINDING_NATIVE_PART_MISSING' not in row['padBinding']['holdCodes']
+ with zipfile.ZipFile(io.BytesIO(outer.read('engineering-QUALIFICATION-ONLY.zip'))) as eng:
+  with zipfile.ZipFile(io.BytesIO(eng.read('CANDIDATE.zip'))) as native:
+   m=E.fromstring(native.read('${syntheticSelection.masterMember}'))
+   windows=m.findall('WindowDataList/WindowData')
+   assert len(windows)==3 and windows[1].findtext('ParentWndId')=='700'
+   assert windows[-1].findtext('ID')=='20' and windows[-1].findtext('ENABLE')=='False'
+`, packagePath], { encoding: 'utf8' });
+  expect(check.status, check.stderr).toBe(0);
+  await expect(region).toContainText('1 have explicitly partial windows');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
