@@ -58,17 +58,17 @@ def validate_profile(p):
             _fail('PACKAGE_GEOMETRY', 'Conservative physical-electrode overlap is required.')
 
 
-def source_geometry(target, profile, pcb):
+def source_geometry(target, profile, pcb, count=3, physical_pins=None):
     from .paired_terminal_constructor import pin_mapping
     if any(e['layoutSha256'] != sha256(pcb).hexdigest() for e in (profile['anchor']['evidence'], profile['polarity']['evidence'])):
         _fail('PACKAGE_EVIDENCE_STALE', 'Body and physical-pin evidence must identify this exact layout.')
     if target['identityHolds'] or not target['ownedPadCentersAvailable'] or target['mountingEvidence'] != 'explicit-zero-holes':
         _fail('PACKAGE_SOURCE', 'Unique unflipped zero-hole owned pad geometry is required.')
     layers = target['explicitLayerGeometry']
-    if len(layers) != 1 or str(layers[0]['layerNumber']) != '1' or len(layers[0]['pads']) != 3:
-        _fail('PACKAGE_LAYER', 'Exactly three explicit top-layer physical terminal lands are supported.')
+    if len(layers) != 1 or str(layers[0]['layerNumber']) != '1' or len(layers[0]['pads']) != count:
+        _fail('PACKAGE_LAYER', 'The exact reviewed count of explicit top-layer owned lands is required.')
     pads = sorted(layers[0]['pads'], key=lambda p: str(p['padNumber']))
-    mapping, path = pin_mapping(pcb, target, profile, count=3)
+    mapping, path = pin_mapping(pcb, target, profile, count=count)
     if mapping != profile['padPinMap'] or set(mapping) != {str(p['padNumber']) for p in pads}:
         _fail('PACKAGE_PIN_MAP', 'Fresh owned pad/pin mapping differs from the numbered package evidence.')
     if any(p['shape'] != 'Rect' or p['localRotationDegrees'] % 90 for p in pads):
@@ -129,6 +129,8 @@ def source_geometry(target, profile, pcb):
     terminals = []
     for pad in pads:
         pin = mapping[str(pad['padNumber'])]
+        if physical_pins is not None and pin not in physical_pins:
+            continue
         e = next(e for e in profile['electrodes'] if e['pin'] == pin)
         ex,ey = e['centerXmm']*c-e['centerYmm']*s, e['centerXmm']*s+e['centerYmm']*c
         ew,eh = (e['heightMm'],e['widthMm']) if quarter else (e['widthMm'],e['heightMm'])

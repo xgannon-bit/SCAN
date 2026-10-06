@@ -5,6 +5,12 @@ export function validatePackageProfiles(value: unknown): PackageProfile[] {
   const keys = "attachedPatternName,body,bodyWindowId,compRef,drawing,electrode,graphicsRef,id,kind,nativePartNames,padPinMap,patternRef,seedMasterKey,seedPartId,terminalWindowId";
   const ids = new Set();
   for (const p of value) {
+    if (p?.kind === "numbered-physical-terminal-body-v1") {
+      validatePhysicalTerminalProfile(p);
+      if (ids.has(p.id)) throw new Error("Duplicate package evidence identity.");
+      ids.add(p.id);
+      continue;
+    }
     if (p?.kind === "polarized-three-terminal-body-v1") {
       validateThreeTerminalProfile(p);
       if (ids.has(p.id)) throw new Error("Duplicate package evidence identity.");
@@ -51,6 +57,29 @@ function validateThreeTerminalProfile(p: Record<string, any>) {
   if (!polarity || Object.keys(polarity).sort().join() !== "evidence,pinRoles" || !polarity.pinRoles || Array.isArray(polarity.pinRoles) || Object.keys(polarity.pinRoles).sort().join() !== Object.values(map).sort().join() || Object.values(polarity.pinRoles).sort().join() !== "anode,cathode,no-connection") throw new Error("Physical anode, cathode and no-connection leads must all be retained.");
   evidence(polarity.evidence);
   if (!Array.isArray(electrodes) || electrodes.length !== 3 || electrodes.map(e => e?.pin).sort().join() !== Object.values(map).sort().join() || electrodes.some(e => !e || Object.keys(e).sort().join() !== "centerXmm,centerYmm,heightMm,minimumOverlapFraction,pin,widthMm" || ![e.centerXmm, e.centerYmm, e.widthMm, e.heightMm, e.minimumOverlapFraction].every(finite) || e.widthMm <= 0 || e.heightMm <= 0 || e.minimumOverlapFraction < .5 || e.minimumOverlapFraction > 1)) throw new Error("All three numbered manufacturer physical leads need bounded geometry.");
+}
+
+function validatePhysicalTerminalProfile(p: Record<string, any>) {
+  const common = "attachedPatternName,body,bodyWindowId,compRef,drawing,graphicsRef,id,kind,nativePartNames,padPinMap,patternRef,seedMasterKey,seedPartId,terminalWindowId";
+  if (Object.keys(p).sort().join() !== [...common.split(","), "anchor", "polarity", "electrodes", "packageRotationDegrees", "absenceEvidence", "pin1"].sort().join()) throw new Error("Invalid numbered physical-lead fields.");
+  const map=p.padPinMap, q=p.polarity;
+  if (!map || Array.isArray(map) || typeof map!=="object" || Object.keys(map).length<4 || Object.keys(map).length>24 || new Set(Object.values(map)).size!==Object.keys(map).length || [...Object.keys(map),...Object.values(map)].some(n=>typeof n!=="string" || !/^[1-9][0-9]{0,3}$/.test(n))) throw new Error("Bounded distinct numbered footprint pad/component pin identities are required.");
+  const allowed=["anode","cathode","ground","output","supply","no-connection","no-physical-lead"];
+  if (!q || Object.keys(q).sort().join()!=="evidence,pinRoles" || !q.pinRoles || Array.isArray(q.pinRoles) || Object.keys(q.pinRoles).sort().join()!==Object.values(map).sort().join() || Object.values(q.pinRoles).some(r=>typeof r!=="string" || !allowed.includes(r))) throw new Error("Every mapped pin needs a physical or absent-lead role.");
+  const physical=Object.keys(q.pinRoles).filter(n=>q.pinRoles[n]!=="no-physical-lead"), absent=Object.keys(q.pinRoles).filter(n=>q.pinRoles[n]==="no-physical-lead");
+  if (physical.length<3 || !absent.length || Object.values(q.pinRoles).filter(r=>r==="anode").length!==1 || Object.values(q.pinRoles).filter(r=>r==="cathode").length!==1) throw new Error("Explicit physical leads, absent leads and one anode/cathode pair are required.");
+  if (!Array.isArray(p.electrodes) || p.electrodes.length!==physical.length || p.electrodes.map((e: any)=>e?.pin).sort().join()!==physical.sort().join()) throw new Error("Every physical lead and no absent lead must have manufacturer geometry.");
+  if (!p.absenceEvidence || Array.isArray(p.absenceEvidence) || Object.keys(p.absenceEvidence).sort().join()!==absent.sort().join()) throw new Error("Every absent physical lead requires evidence.");
+  const evidence=(e: Record<string, any>)=>{
+    if (!e || Object.keys(e).sort().join()!=="documentId,layoutSha256,locator,method,page,sha256,statement" || !["numbered-footprint","component-library","dimensioned-assembly","manufacturer-package-correspondence"].includes(e.method) || ["documentId","locator","statement"].some(k=>typeof e[k]!=="string" || !e[k] || e[k].length>4096 || e[k].includes("\0")) || [e.sha256,e.layoutSha256].some(h=>typeof h!=="string" || !/^[a-f0-9]{64}$/.test(h)) || !Number.isInteger(e.page) || e.page<1 || e.page>100) throw new Error("Source-bound manufacturer evidence required.");
+  };
+  evidence(q.evidence);for(const e of Object.values(p.absenceEvidence))evidence(e as Record<string,any>);
+  if (!p.pin1 || Object.keys(p.pin1).sort().join()!=="evidence,pin" || p.pin1.pin!=="1" || !physical.includes(p.pin1.pin)) throw new Error("Physical numbered pin 1 needs orientation evidence.");
+  evidence(p.pin1.evidence);
+  const subset=physical.sort().slice(0,3),{absenceEvidence,pin1,...shim}=p;
+  validateThreeTerminalProfile({...shim,kind:"polarized-three-terminal-body-v1",padPinMap:Object.fromEntries(Object.entries(map).filter(([,n])=>subset.includes(n as string))),polarity:{pinRoles:Object.fromEntries(subset.map((n,i)=>[n,["anode","no-connection","cathode"][i]])),evidence:q.evidence},electrodes:p.electrodes.filter((e: any)=>subset.includes(e.pin))});
+  const finite=(n: unknown)=>typeof n==="number" && Number.isFinite(n) && Math.abs(n)<=1000;
+  if (p.electrodes.some((e: any)=>!e || Object.keys(e).sort().join()!=="centerXmm,centerYmm,heightMm,minimumOverlapFraction,pin,widthMm" || ![e.centerXmm,e.centerYmm,e.widthMm,e.heightMm,e.minimumOverlapFraction].every(finite) || e.widthMm<=0 || e.heightMm<=0 || e.minimumOverlapFraction<.5 || e.minimumOverlapFraction>1)) throw new Error("Every physical electrode needs bounded geometry.");
 }
 
 function validateDiodeProfile(p: Record<string, any>) {

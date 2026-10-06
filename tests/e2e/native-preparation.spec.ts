@@ -5,10 +5,10 @@ import path from 'node:path';
 import { authoredPreparation } from '../native-preparation-fixture.mjs';
 import { makeArchive, syntheticMembers, syntheticSelection } from '../synthetic-archive.mjs';
 
-for (const family of ['paired', 'diode', 'three']) test(`${family} construction exports an actual disabled model and survives project reopening`, async ({ page }, info) => {
-  const polarized = family === 'diode', three = family === 'three';
+for (const family of ['paired', 'diode', 'three', 'physical']) test(`${family} construction exports an actual disabled model and survives project reopening`, async ({ page }, info) => {
+  const polarized = family === 'diode', three = family === 'three', physical = family === 'physical';
   const python = path.join(process.cwd(), '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
-  const result = spawnSync(python, ['-c', `import json\nfrom workers.scan.tests.${three ? 'test_three_terminal_constructor' : polarized ? 'test_diode_constructor' : 'test_paired_terminal_constructor'} import fixture\nj,m,b,p=${three ? 'fixture(90,270)' : polarized ? 'fixture(90,90,True)' : 'fixture(270)'}\nprint(json.dumps(dict(job=j.decode(),master=m.decode(),pcb=b.decode(),profile=p)))`], { encoding: 'utf8' });
+  const result = spawnSync(python, ['-c', `import json\nfrom workers.scan.tests.${physical ? 'test_physical_terminal_constructor' : three ? 'test_three_terminal_constructor' : polarized ? 'test_diode_constructor' : 'test_paired_terminal_constructor'} import fixture\nj,m,b,p=${physical || three ? 'fixture(90,270)' : polarized ? 'fixture(90,90,True)' : 'fixture(270)'}\nprint(json.dumps(dict(job=j.decode(),master=m.decode(),pcb=b.decode(),profile=p)))`], { encoding: 'utf8' });
   expect(result.status, result.stderr).toBe(0);
   const f = JSON.parse(result.stdout);
   await page.goto('/intake');
@@ -44,7 +44,7 @@ with zipfile.ZipFile(sys.argv[1]) as z:
  p=z.read('SCAN.scan-project.json');pathlib.Path(sys.argv[2]).write_bytes(p)
  saved=json.loads(p)['nativePreparation'];assert len(saved['packageProfiles'])==1 and saved['history'][0]['packageProfiles']==saved['packageProfiles']
  work=json.loads(z.read('component-by-component-Eagle-work.json'));assert work['counts']['preparedWithConstructedGeometry']==1
- row=next(r for r in work['rows'] if r['reference']=='N1');assert len(row['windows'])==${three ? 4 : 3} and row['windows'][1]['referenceGeometry']['pin']=='1'
+ row=next(r for r in work['rows'] if r['reference']=='N1');assert len(row['windows'])==${physical ? 6 : three ? 4 : 3} and row['windows'][1]['referenceGeometry']['pin']=='1'
  assert row['padBinding']['newBindingTuples']==0 and row['machineValidated'] is False
  if ${polarized ? 'True' : 'False'}:
   assert row['windows'][1]['referenceGeometry']['terminalRole']=='cathode'
@@ -52,6 +52,12 @@ with zipfile.ZipFile(sys.argv[1]) as z:
  if ${three ? 'True' : 'False'}:
   assert [w['referenceGeometry'].get('terminalRole') for w in row['windows'][1:]]==['anode','no-connection','cathode']
   assert any('NC does not authorize' in step for step in row['atEagle'])
+ if ${physical ? 'True' : 'False'}:
+  assert [w['referenceGeometry']['pin'] for w in row['windows'][1:]]==['1','3','4','5','6']
+  assert row['unrepresentedSourceLands'][0]['padNumber']=='2'
+  assert row['unrepresentedSourceLands'][0]['nativeWindowCreated'] is False
+  assert not any('Teach the cathode mark' in step for step in row['atEagle'])
+  assert any('pin-1 marking' in step for step in row['atEagle'])
 `, bundlePath, projectPath], { encoding: 'utf8' });
   expect(verified.status, verified.stderr).toBe(0);
   await page.reload();

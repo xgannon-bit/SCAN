@@ -25,6 +25,13 @@ def validate_profiles(profiles):
         _fail('PACKAGE_PROFILE', 'At most 20 explicit package evidence profiles are supported.')
     ids = set()
     for p in profiles:
+        if isinstance(p, dict) and p.get('kind') == 'numbered-physical-terminal-body-v1':
+            from .physical_terminal_constructor import validate_profile
+            validate_profile(p)
+            if p['id'] in ids:
+                _fail('PACKAGE_PROFILE', 'Package evidence profile IDs must be unique.')
+            ids.add(p['id'])
+            continue
         if isinstance(p, dict) and p.get('kind') == 'polarized-three-terminal-body-v1':
             from .three_terminal_constructor import validate_profile
             validate_profile(p)
@@ -166,8 +173,11 @@ def construct(j, m, layout, pcb, choice, profile, allocate):
     cad = _cad(j, target['refdes'], module)
     if _text(cad, 'PrntPartName') not in profile['nativePartNames']:
         _fail('PACKAGE_IDENTITY', 'Native CAD identity is not one of the explicitly matched drawing identities.')
-    polarized = profile['kind'] in {'polarized-two-terminal-body-v1', 'polarized-three-terminal-body-v1'}
-    if profile['kind'] == 'polarized-three-terminal-body-v1':
+    polarized = profile['kind'] in {'polarized-two-terminal-body-v1', 'polarized-three-terminal-body-v1', 'numbered-physical-terminal-body-v1'}
+    if profile['kind'] == 'numbered-physical-terminal-body-v1':
+        from .physical_terminal_constructor import source_geometry as physical_geometry
+        geom = physical_geometry(target, profile, pcb)
+    elif profile['kind'] == 'polarized-three-terminal-body-v1':
         from .three_terminal_constructor import source_geometry as three_geometry
         geom = three_geometry(target, profile, pcb)
     elif polarized:
@@ -281,7 +291,16 @@ def construct(j, m, layout, pcb, choice, profile, allocate):
                                cathodeDirectionNativeBoardAxes=[geom['axis'][0]*math.cos(radians)-geom['axis'][1]*math.sin(radians),
                                                                 geom['axis'][0]*math.sin(radians)+geom['axis'][1]*math.cos(radians)],
                                nativePolaritySetting='unlearned-zero-sentinel-runtime-unverified')
-        result['remaining'].extend(['cathode-mark-image-teaching-required', 'native-polarity-position-and-teaching-frame-unverified'])
+        if profile['kind'] != 'numbered-physical-terminal-body-v1':
+            result['remaining'].append('cathode-mark-image-teaching-required')
+        result['remaining'].append('native-polarity-position-and-teaching-frame-unverified')
         if any(r.get('terminalRole') == 'no-connection' for r in roles):
             result['remaining'].append('no-connection-is-a-physical-lead-review-solder-inspection-not-an-exclusion')
+    if profile['kind'] == 'numbered-physical-terminal-body-v1':
+        result['dependencies']['unrepresentedSourceLands'] = geom['unrepresentedSourceLands']
+        result['basis'].update(pin1Evidence=geom['pin1'], pin1DirectionPatternAxes=geom['pin1Direction'],
+                               pin1DirectionNativeBoardAxes=[geom['pin1Direction'][0]*math.cos(radians)-geom['pin1Direction'][1]*math.sin(radians),
+                                                             geom['pin1Direction'][0]*math.sin(radians)+geom['pin1Direction'][1]*math.cos(radians)])
+        result['remaining'].extend(['pin1-mark-and-physical-pin-role-image-verification-required',
+                                    'extra-footprint-land-has-no-physical-lead-not-a-component-or-inspection-exclusion'])
     return result

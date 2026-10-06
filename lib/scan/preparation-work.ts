@@ -12,7 +12,7 @@ export type PreparationAccounting = {
 export type PreparationItem = {
   status: string; reference?: string; digest?: string;
   selection: { moduleId: string };
-  dependencies?: { partId: string; masterKey: string; windowIds: string[]; windowPreparation?: string; windowRoles?: { windowId: string; role: string; padNumber: string | null; pin: string | null; sourcePath: string | null; terminalRole?: string }[]; omittedWindows?: PreparationAccounting["omittedWindows"] };
+  dependencies?: { partId: string; masterKey: string; windowIds: string[]; windowPreparation?: string; windowRoles?: { windowId: string; role: string; padNumber: string | null; pin: string | null; sourcePath: string | null; terminalRole?: string }[]; omittedWindows?: PreparationAccounting["omittedWindows"]; unrepresentedSourceLands?: { padNumber: string; pin: string; sourcePath: string; role: string; nativeWindowCreated: boolean; sourceGeometryPreserved: boolean; componentExcluded: boolean; evidence: unknown }[] };
   remaining?: string[]; prepared?: string;
 };
 export type PreparationBindingWork = { status: string; components: { reference: string; moduleId: string; sourceOwnedPadCount: number; holdCodes: string[]; requiredEvidence: string[]; placements: { partId: string; masterKey: string; bindingTupleCount: number; literalClosedTupleCount: number; literalState: string; windowCount: number }[] }[];
@@ -57,8 +57,10 @@ export function preparationWork(accounting: PreparationAccounting[], items: Prep
       "Teach required body/presence, leads/solder, polarity, OCR, Blob, lighting and height on the actual board; no template image algorithms were transferred.");
     if (prepared && component.windowPreparation === "constructed-body-terminal-geometry") atEagle.push("Qualify the new body origin, local Master and each owned terminal-land reference window. Terminal-land geometry is not lead/solder teaching. Verify the native coordinate convention and any Eagle binding or model synchronization preserves the initial placement; that behavior remains unverified.");
     const polarized = item?.dependencies?.windowRoles?.some(w => w.terminalRole === "cathode");
-    if (prepared && polarized) atEagle.push("Check the recorded source pad/pin anode and cathode assignment against the fitted part and manufacturer marking. Teach the cathode mark in Eagle; native polarity-position fields remain unlearned and unqualified. Verify polarity and body/terminal positions after binding, teaching, save and reopen.");
+    if (prepared && polarized && !item?.dependencies?.unrepresentedSourceLands?.length) atEagle.push("Check the recorded source pad/pin anode and cathode assignment against the fitted part and manufacturer marking. Teach the cathode mark in Eagle; native polarity-position fields remain unlearned and unqualified. Verify polarity and body/terminal positions after binding, teaching, save and reopen.");
     if (prepared && item?.dependencies?.windowRoles?.some(w => w.terminalRole === "no-connection")) atEagle.push("The no-connection pin is a physical lead with its own prepared terminal-land reference. Bind and review its solder/lead inspection as required; electrical NC does not authorize omitting physical inspection.");
+    const unrepresentedSourceLands = item?.dependencies?.unrepresentedSourceLands ?? [];
+    if (prepared && unrepresentedSourceLands.length) atEagle.push(`Verify numbered pin-1 marking and every physical package lead against the fitted part. Footprint land(s) ${unrepresentedSourceLands.map(l=>l.padNumber).join(", ")} have no physical lead in the matched package: no terminal window was created for them. Preserve their source geometry and do not bind a physical-lead inspection to them. This is not a component exclusion or electrical NC lead; review any separate board-feature inspection explicitly.`);
     if (partialWindows) atEagle.push(`Partial local-window preparation: resolve each omitted intended inspection before enabling: ${omittedWindows.map(w => `${w.windowId} (${w.reasons.join(", ")})`).join("; ")}. Create/teach any required missing window with a supported local parent; review body settings and implicit window-dependent settings. No omitted window is an approved inspection exclusion.`);
     if (existed) atEagle.push("Preserve existing teaching; review flagged bindings/origins/windows and shared Master scope. Reteach only where review or a geometry change requires it.");
     atEagle.push("Complete Eagle open/save/reopen qualification and physical inspection before enabling intended parts; record machine-specific validation separately.");
@@ -69,7 +71,7 @@ export function preparationWork(accounting: PreparationAccounting[], items: Prep
       bomApplicability: applicability, workOrderPopulation: "unapproved", intentionallyExcluded: false,
       mountingEvidence: component.mountingEvidence ?? "unknown", sourcePath: component.sourcePath ?? null,
       placementIds: item?.dependencies ? [item.dependencies.partId] : component.placementIds,
-      masterKeys: keys, windows, omittedWindows,
+      masterKeys: keys, windows, omittedWindows, unrepresentedSourceLands,
       windowPreparation: prepared ? (partialWindows ? "partial-closed-window-subset" : component.windowPreparation ?? item?.dependencies?.windowPreparation ?? "complete-template-window-copy") : "not-prepared-by-this-candidate",
       sharedMasterScopes: scopes.map(s => ({ masterKey: s.masterKeyLiteral, placementCount: s.partIds.length, scopeId: s.id })),
       nativeCreation: prepared ? "prepared-offline" : existed ? "existing-preserved" : pending ? "proposal-awaiting-review" : "required-if-populated",
@@ -111,7 +113,7 @@ export function preparationWork(accounting: PreparationAccounting[], items: Prep
 }
 
 export function preparationWorkCsv(work: ReturnType<typeof preparationWork>) {
-  const columns = ["reference", "module", "category", "state", "populationEvidence", "workOrderPopulation", "nativeCreation", "nativePlacement", "alignment", "teaching", "placementIds", "masterKeys", "windowPreparation", "windows", "omittedWindows", "padBinding", "holdCode", "holdReason", "atEagle"] as const;
+  const columns = ["reference", "module", "category", "state", "populationEvidence", "workOrderPopulation", "nativeCreation", "nativePlacement", "alignment", "teaching", "placementIds", "masterKeys", "windowPreparation", "windows", "omittedWindows", "unrepresentedSourceLands", "padBinding", "holdCode", "holdReason", "atEagle"] as const;
   const cell = (value: unknown) => {
     const text = typeof value === "string" ? value : JSON.stringify(value ?? "");
     return `"${/^[=+@-]/.test(text) ? "'" : ""}${text.replaceAll('"', '""')}"`;
