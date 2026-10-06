@@ -5,6 +5,12 @@ export function validatePackageProfiles(value: unknown): PackageProfile[] {
   const keys = "attachedPatternName,body,bodyWindowId,compRef,drawing,electrode,graphicsRef,id,kind,nativePartNames,padPinMap,patternRef,seedMasterKey,seedPartId,terminalWindowId";
   const ids = new Set();
   for (const p of value) {
+    if (p?.kind === "polarized-three-terminal-body-v1") {
+      validateThreeTerminalProfile(p);
+      if (ids.has(p.id)) throw new Error("Duplicate package evidence identity.");
+      ids.add(p.id);
+      continue;
+    }
     if (p?.kind === "polarized-two-terminal-body-v1") {
       validateDiodeProfile(p);
       if (ids.has(p.id)) throw new Error("Duplicate package evidence identity.");
@@ -25,6 +31,26 @@ export function validatePackageProfiles(value: unknown): PackageProfile[] {
     if (!map || typeof map !== "object" || Array.isArray(map) || Object.keys(map).length !== 2 || new Set(Object.values(map)).size !== 2 || [...Object.keys(map), ...Object.values(map)].some(n => typeof n !== "string" || !/^[1-9][0-9]{0,3}$/.test(n))) throw new Error("Invalid terminal pad/pin map.");
   }
   return value as PackageProfile[];
+}
+
+function validateThreeTerminalProfile(p: Record<string, any>) {
+  const common = "attachedPatternName,body,bodyWindowId,compRef,drawing,graphicsRef,id,kind,nativePartNames,padPinMap,patternRef,seedMasterKey,seedPartId,terminalWindowId";
+  if (Object.keys(p).sort().join() !== [...common.split(","), "anchor", "polarity", "electrodes", "packageRotationDegrees"].sort().join()) throw new Error("Invalid three-terminal evidence fields.");
+  const finite = (n: unknown) => typeof n === "number" && Number.isFinite(n) && Math.abs(n) <= 1000;
+  const b = p.body, map = p.padPinMap;
+  if (!b || Object.keys(b).sort().join() !== "heightMm,maxHeightMm,maxWidthMm,minHeightMm,minWidthMm,widthMm" || !Object.values(b).every(n => finite(n) && (n as number) > 0) || b.minWidthMm > b.widthMm || b.widthMm > b.maxWidthMm || b.minHeightMm > b.heightMm || b.heightMm > b.maxHeightMm) throw new Error("Invalid manufacturer body bounds.");
+  if (!map || Array.isArray(map) || typeof map !== "object" || Object.keys(map).length !== 3 || new Set(Object.values(map)).size !== 3 || [...Object.keys(map), ...Object.values(map)].some(n => typeof n !== "string" || !/^[1-9][0-9]{0,3}$/.test(n))) throw new Error("Three distinct physical pad/pin identities are required.");
+  const { anchor, polarity, electrodes, packageRotationDegrees, ...legacy } = p;
+  validatePackageProfiles([{ ...legacy, kind: "symmetric-two-terminal-body-v1", body: { widthMm: b.widthMm, heightMm: b.heightMm, offsetAlongMm: 0, offsetAcrossMm: 0 }, electrode: { widthMm: 1, heightMm: 1, centerSeparationMm: 1, minimumOverlapFraction: .5 }, padPinMap: Object.fromEntries(Object.entries(map).slice(0, 2)) }]);
+  const evidence = (e: Record<string, any>) => {
+    if (!e || Object.keys(e).sort().join() !== "documentId,layoutSha256,locator,method,page,sha256,statement" || !["numbered-footprint", "component-library", "dimensioned-assembly", "manufacturer-package-correspondence"].includes(e.method) || ["documentId", "locator", "statement"].some(k => typeof e[k] !== "string" || !e[k] || e[k].length > 4096 || e[k].includes("\0")) || [e.sha256, e.layoutSha256].some(h => typeof h !== "string" || !/^[a-f0-9]{64}$/.test(h)) || !Number.isInteger(e.page) || e.page < 1 || e.page > 100) throw new Error("Source-bound numbered package evidence is required.");
+  };
+  if (![0, 90, 180, 270].includes(packageRotationDegrees)) throw new Error("Cardinal numbered drawing rotation required; no mirroring.");
+  if (!anchor || Object.keys(anchor).sort().join() !== "evidence,layerNumber,linePaths" || typeof anchor.layerNumber !== "string" || !/^[1-9][0-9]{0,3}$/.test(anchor.layerNumber) || !Array.isArray(anchor.linePaths) || anchor.linePaths.length !== 4 || new Set(anchor.linePaths).size !== 4 || anchor.linePaths.some((s: unknown) => typeof s !== "string" || !s.startsWith("/") || s.length > 4096)) throw new Error("Four owned body-rectangle paths and a layer are required.");
+  evidence(anchor.evidence);
+  if (!polarity || Object.keys(polarity).sort().join() !== "evidence,pinRoles" || !polarity.pinRoles || Array.isArray(polarity.pinRoles) || Object.keys(polarity.pinRoles).sort().join() !== Object.values(map).sort().join() || Object.values(polarity.pinRoles).sort().join() !== "anode,cathode,no-connection") throw new Error("Physical anode, cathode and no-connection leads must all be retained.");
+  evidence(polarity.evidence);
+  if (!Array.isArray(electrodes) || electrodes.length !== 3 || electrodes.map(e => e?.pin).sort().join() !== Object.values(map).sort().join() || electrodes.some(e => !e || Object.keys(e).sort().join() !== "centerXmm,centerYmm,heightMm,minimumOverlapFraction,pin,widthMm" || ![e.centerXmm, e.centerYmm, e.widthMm, e.heightMm, e.minimumOverlapFraction].every(finite) || e.widthMm <= 0 || e.heightMm <= 0 || e.minimumOverlapFraction < .5 || e.minimumOverlapFraction > 1)) throw new Error("All three numbered manufacturer physical leads need bounded geometry.");
 }
 
 function validateDiodeProfile(p: Record<string, any>) {

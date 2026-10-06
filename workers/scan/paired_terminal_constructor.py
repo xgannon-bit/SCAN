@@ -25,6 +25,13 @@ def validate_profiles(profiles):
         _fail('PACKAGE_PROFILE', 'At most 20 explicit package evidence profiles are supported.')
     ids = set()
     for p in profiles:
+        if isinstance(p, dict) and p.get('kind') == 'polarized-three-terminal-body-v1':
+            from .three_terminal_constructor import validate_profile
+            validate_profile(p)
+            if p['id'] in ids:
+                _fail('PACKAGE_PROFILE', 'Package evidence profile IDs must be unique.')
+            ids.add(p['id'])
+            continue
         if isinstance(p, dict) and p.get('kind') == 'polarized-two-terminal-body-v1':
             from .diode_constructor import validate_profile
             validate_profile(p)
@@ -64,7 +71,7 @@ def validate_profiles(profiles):
     return profiles
 
 
-def pin_mapping(pcb, target, profile):
+def pin_mapping(pcb, target, profile, count=2):
     ast, _ = _parse(pcb.decode('latin-1'), AccelLimits(), Counter())
     nodes = []
     def visit(n):
@@ -83,13 +90,13 @@ def pin_mapping(pcb, target, profile):
     if len(attached) != 1 or len(attached[0].all('padPinMap')) != 1:
         _fail('PACKAGE_PIN_MAP', 'One attached-pattern pad/pin map must match the owned footprint.')
     children = attached[0].all('padPinMap')[0].children
-    if len(children) != 4 or [n.tag for n in children] != ['padNum', 'compPinRef'] * 2 or any(len(n.args) != 1 or n.children for n in children):
+    if len(children) != count*2 or [n.tag for n in children] != ['padNum', 'compPinRef'] * count or any(len(n.args) != 1 or n.children for n in children):
         _fail('PACKAGE_PIN_MAP', 'Unsupported, partial or ambiguous pad/pin map.')
-    pairs = [(children[i].args[0], children[i+1].args[0]) for i in (0, 2)]
+    pairs = [(children[i].args[0], children[i+1].args[0]) for i in range(0, count*2, 2)]
     pins = defs[0].all('compPin')
-    if len(pins) != 2 or any(len(n.args) != 1 for n in pins) or {n.args[0] for n in pins} != {b for _, b in pairs} or scalar(attached[0], 'numPads') != '2':
-        _fail('PACKAGE_PIN_MAP', 'Mapped pins must close on exactly two literal component-definition pins and two declared pads.')
-    if len(set(a for a, _ in pairs)) != 2 or len(set(b for _, b in pairs)) != 2:
+    if len(pins) != count or any(len(n.args) != 1 for n in pins) or {n.args[0] for n in pins} != {b for _, b in pairs} or scalar(attached[0], 'numPads') != str(count):
+        _fail('PACKAGE_PIN_MAP', 'Mapped pins must close on the exact literal component-definition pins and declared pads.')
+    if len(set(a for a, _ in pairs)) != count or len(set(b for _, b in pairs)) != count:
         _fail('PACKAGE_PIN_MAP', 'Duplicate pad/pin identity is not supported.')
     return dict(pairs), attached[0].path
 
@@ -159,8 +166,11 @@ def construct(j, m, layout, pcb, choice, profile, allocate):
     cad = _cad(j, target['refdes'], module)
     if _text(cad, 'PrntPartName') not in profile['nativePartNames']:
         _fail('PACKAGE_IDENTITY', 'Native CAD identity is not one of the explicitly matched drawing identities.')
-    polarized = profile['kind'] == 'polarized-two-terminal-body-v1'
-    if polarized:
+    polarized = profile['kind'] in {'polarized-two-terminal-body-v1', 'polarized-three-terminal-body-v1'}
+    if profile['kind'] == 'polarized-three-terminal-body-v1':
+        from .three_terminal_constructor import source_geometry as three_geometry
+        geom = three_geometry(target, profile, pcb)
+    elif polarized:
         from .diode_constructor import source_geometry as diode_geometry
         geom = diode_geometry(target, profile, pcb)
     else:
@@ -248,7 +258,7 @@ def construct(j, m, layout, pcb, choice, profile, allocate):
         changes.append({'document': role, 'container': 'JobContainer/' + container, 'operation': 'append-record', 'before': None, 'afterXml': ET.tostring(node, encoding='unicode')})
     result = {'selection': choice, 'reference': target['refdes'], 'templateReference': _text(part, 'RefID'), 'enabled': False,
             'changes': changes, 'dependencies': {'partId': pid, 'masterKey': key, 'number': number, 'moduleId': module,
-                'windowIds': [r['windowId'] for r in roles], 'groupIds': ['1', '2', '3'], 'windowPreparation': 'constructed-body-terminal-geometry',
+                'windowIds': [r['windowId'] for r in roles], 'groupIds': [str(i+1) for i in range(len(roles))], 'windowPreparation': 'constructed-body-terminal-geometry',
                 'windowRoles': roles, 'omittedWindows': [], 'newAlgorithms': 0, 'templateAlgorithmsNotTransferred': sum(len(_one(w, 'AlgorithmDataList')) for w in seeds), 'sharedLibrariesChanged': False},
             'basis': {'geometryRoute': profile['kind'], 'packageProfileId': profile['id'], 'drawing': profile['drawing'],
                       'bodyGeometryMm': profile['body'], 'terminalGeometry': geom['terminals'], 'pinMap': profile['padPinMap'], 'pinMapSourcePath': geom['pinMapSourcePath'],
@@ -272,4 +282,6 @@ def construct(j, m, layout, pcb, choice, profile, allocate):
                                                                 geom['axis'][0]*math.sin(radians)+geom['axis'][1]*math.cos(radians)],
                                nativePolaritySetting='unlearned-zero-sentinel-runtime-unverified')
         result['remaining'].extend(['cathode-mark-image-teaching-required', 'native-polarity-position-and-teaching-frame-unverified'])
+        if any(r.get('terminalRole') == 'no-connection' for r in roles):
+            result['remaining'].append('no-connection-is-a-physical-lead-review-solder-inspection-not-an-exclusion')
     return result
