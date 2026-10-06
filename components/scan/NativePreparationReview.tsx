@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { validatePackageProfiles } from "@/lib/scan/package-profiles";
+import { previousPreparationDecisions } from "@/lib/scan/native-preparation-session";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useScanSession } from "./ScanSession";
@@ -51,11 +52,9 @@ export function NativePreparationReview() {
       if (next.plan.source.layoutSha256 !== layout.result!.sourceSha256 || next.plan.source.jobSha256 !== archiveReview!.preflight.selection.job.sha256 || next.plan.source.masterSha256 !== archiveReview!.preflight.selection.master?.sha256) throw new Error("Review source identities differ.");
       // Adding a package profile changes the plan receipt, not every unchanged
       // item. Retain only exact item decisions from these same captured sources.
-      const prior = [saved.review, ...[...saved.history].reverse().map(h => h.review)].find(r => r &&
-        r.sourceContext === session.sourceContext && r.archiveSha256 === archiveReview!.preflight.source.sha256 &&
-        r.layoutSha256 === layout.result!.sourceSha256);
+      const prior = previousPreparationDecisions(saved, archiveReview!.preflight.source.sha256, layout.result!.sourceSha256);
       setNativePreparation(old => ({ ...old, review: { digest: next.digest, sourceContext: session.sourceContext!, archiveSha256: archiveReview!.preflight.source.sha256,
-        layoutSha256: layout.result!.sourceSha256, decisions: next.plan.items.filter(i => i.status === "ready-for-review").map(i => ({ digest: i.digest!, reference: i.reference!, decision: prior?.decisions.find(d => d.digest === i.digest && d.reference === i.reference)?.decision ?? "pending" })) } }));
+        layoutSha256: layout.result!.sourceSha256, decisions: next.plan.items.filter(i => i.status === "ready-for-review").map(i => ({ digest: i.digest!, reference: i.reference!, decision: prior.find(d => d.digest === i.digest && d.reference === i.reference)?.decision ?? "pending" })) } }));
       setReview(next); setMessage("Complete source-derived proposals recomputed. Review each part's exact appended records; original records remain unchanged.");
     } catch (error) { if (!abort.signal.aborted) setMessage(error instanceof Error ? error.message : "Preparation review failed."); }
     finally { if (controller.current === abort) { controller.current = null; setBusy(false); } }

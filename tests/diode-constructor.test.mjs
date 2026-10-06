@@ -8,6 +8,7 @@ import { readCandidateWork } from '../lib/scan/engineering-candidate-work.ts';
 import { validatePackageProfiles } from '../lib/scan/package-profiles.ts';
 import { encodeProject, decodeProject } from '../lib/scan/project-session.ts';
 import { preparationWork } from '../lib/scan/preparation-work.ts';
+import { previousPreparationDecisions } from '../lib/scan/native-preparation-session.ts';
 
 const python = path.join(process.cwd(), '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
 export function authoredDiode() {
@@ -49,4 +50,14 @@ test('incomplete diode profiles persist exact holds, never fabricating preparati
   for (const mutate of [p => { p.anchor = {}; }, p => { p.polarity = {}; }, p => { p.electrodes = []; }, p => { p.extra = 1; }]) {
     const p = structuredClone(f.profile); mutate(p); assert.throws(() => validatePackageProfiles([p]));
   }
+});
+
+test('exact decisions survive broader source-context changes but never changed native inputs', () => {
+  const review = { sourceContext: 'a'.repeat(64), archiveSha256: 'b'.repeat(64), layoutSha256: 'c'.repeat(64), decisions: [{ digest: 'd'.repeat(64), reference: 'N1', decision: 'accepted' }] };
+  const session = { review: null, history: [{ review }] };
+  assert.deepEqual(previousPreparationDecisions(session, review.archiveSha256, review.layoutSha256), review.decisions);
+  assert.deepEqual(previousPreparationDecisions(session, 'e'.repeat(64), review.layoutSha256), []);
+  assert.deepEqual(previousPreparationDecisions(session, review.archiveSha256, 'f'.repeat(64)), []);
+  session.review = { ...review, decisions: [{ ...review.decisions[0], decision: 'rejected' }] };
+  assert.equal(previousPreparationDecisions(session, review.archiveSha256, review.layoutSha256)[0].decision, 'rejected');
 });

@@ -8,6 +8,14 @@ export type NativePreparationSession = {
   history: { id: string; recordedAt: string; packageSha256: string; candidateSha256: string; review: PreparationReviewIdentity; reviewer: string; accepted: string[]; packageProfiles?: PackageProfile[] }[];
 };
 export const emptyNativePreparation = (): NativePreparationSession => ({ reviewer: "", review: null, history: [] });
+/** Only these two immutable inputs feed the native constructor. Broader BOM /
+ * viewer context changes cannot alter an exact append-record proposal. This
+ * retains an offline decision, never machine/population or export authority. */
+export function previousPreparationDecisions(session: NativePreparationSession, archiveSha256: string, layoutSha256: string): PartDecision[] {
+  const prior = [session.review, ...[...session.history].reverse().map(h => h.review)].find(r => r &&
+    r.archiveSha256 === archiveSha256 && r.layoutSha256 === layoutSha256);
+  return prior?.decisions ?? [];
+}
 export function validateNativePreparationSession(value: unknown): NativePreparationSession {
   const object = (v: unknown, keys: string[]): Record<string, unknown> => {
     if (!v || typeof v !== "object" || Array.isArray(v) || Object.keys(v).sort().join() !== keys.sort().join()) throw new Error("Invalid saved native preparation structure.");

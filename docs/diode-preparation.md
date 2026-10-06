@@ -52,7 +52,8 @@ never contain a manufacturing board's identities, geometry or pin assignments.
 Append new profiles after existing profiles to retain deterministic earlier
 allocation order. Overlapping profiles and competing template routes refuse.
 After recomputation, exact item decisions from the same captured archive/layout
-can survive a changed plan; altered records require fresh review. Historical
+can survive a changed plan or broader viewer/BOM context; altered records require
+fresh review. This does not retain population or machine authority. Historical
 profile snapshots remain intact. Fresh acknowledgment is required for every
 export, including after project reopening.
 
