@@ -1,9 +1,11 @@
+import { validatePackageProfiles, type PackageProfile } from "./package-profiles";
 export type PartDecision = { digest: string; reference: string; decision: "pending" | "accepted" | "rejected" };
 export type PreparationReviewIdentity = { digest: string; sourceContext: string; archiveSha256: string; layoutSha256: string; decisions: PartDecision[] };
 export type NativePreparationSession = {
   reviewer: string;
+  packageProfiles?: PackageProfile[];
   review: PreparationReviewIdentity | null;
-  history: { id: string; recordedAt: string; packageSha256: string; candidateSha256: string; review: PreparationReviewIdentity; reviewer: string; accepted: string[] }[];
+  history: { id: string; recordedAt: string; packageSha256: string; candidateSha256: string; review: PreparationReviewIdentity; reviewer: string; accepted: string[]; packageProfiles?: PackageProfile[] }[];
 };
 export const emptyNativePreparation = (): NativePreparationSession => ({ reviewer: "", review: null, history: [] });
 export function validateNativePreparationSession(value: unknown): NativePreparationSession {
@@ -23,11 +25,14 @@ export function validateNativePreparationSession(value: unknown): NativePreparat
       seen.add(d.digest);
     }
   };
-  const item = object(value, ["reviewer", "review", "history"]);
+  const optionalProfiles = (v: unknown) => !!v && typeof v === "object" && "packageProfiles" in v;
+  const item = object(value, ["reviewer", "review", "history", ...(optionalProfiles(value) ? ["packageProfiles"] : [])]);
+  if (optionalProfiles(value)) validatePackageProfiles(item.packageProfiles);
   if (!text(item.reviewer, 256) || !Array.isArray(item.history) || item.history.length > 50 || JSON.stringify(value).length > 5_000_000) throw new Error("Saved preparation exceeds supported bounds.");
   if (item.review !== null) review(item.review);
   for (const raw of item.history) {
-    const h = object(raw, ["id", "recordedAt", "packageSha256", "candidateSha256", "review", "reviewer", "accepted"]);
+    const h = object(raw, ["id", "recordedAt", "packageSha256", "candidateSha256", "review", "reviewer", "accepted", ...(optionalProfiles(raw) ? ["packageProfiles"] : [])]);
+    if (optionalProfiles(raw)) validatePackageProfiles(h.packageProfiles);
     review(h.review);
     const r = h.review as PreparationReviewIdentity;
     if (!text(h.id, 128) || !text(h.reviewer, 256) || !h.reviewer || !hash(h.packageSha256) || !hash(h.candidateSha256) || typeof h.recordedAt !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/.test(h.recordedAt) || !Number.isFinite(Date.parse(h.recordedAt)) || !Array.isArray(h.accepted) || !h.accepted.length || h.accepted.length !== new Set(h.accepted).size || h.accepted.some(d => !hash(d) || !r.decisions.some(p => p.digest === d && p.decision === "accepted"))) throw new Error("Invalid preparation candidate history.");

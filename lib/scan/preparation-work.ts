@@ -12,7 +12,7 @@ export type PreparationAccounting = {
 export type PreparationItem = {
   status: string; reference?: string; digest?: string;
   selection: { moduleId: string };
-  dependencies?: { partId: string; masterKey: string; windowIds: string[]; windowPreparation?: string; omittedWindows?: PreparationAccounting["omittedWindows"] };
+  dependencies?: { partId: string; masterKey: string; windowIds: string[]; windowPreparation?: string; windowRoles?: { windowId: string; role: string; padNumber: string | null; pin: string | null; sourcePath: string | null }[]; omittedWindows?: PreparationAccounting["omittedWindows"] };
   remaining?: string[]; prepared?: string;
 };
 export type PreparationBindingWork = { status: string; components: { reference: string; moduleId: string; sourceOwnedPadCount: number; holdCodes: string[]; requiredEvidence: string[]; placements: { partId: string; masterKey: string; bindingTupleCount: number; literalClosedTupleCount: number; literalState: string; windowCount: number }[] }[];
@@ -44,7 +44,7 @@ export function preparationWork(accounting: PreparationAccounting[], items: Prep
     const partialWindows = prepared && (component.status === "prepared-partial-disabled" || omittedWindows.length > 0);
     const scopes = queue?.scopes.filter(s => keys.includes(s.masterKeyLiteral)) ?? [];
     const scopeIds = new Set(scopes.map(s => s.id));
-    const windows = prepared && item?.dependencies ? item.dependencies.windowIds.map(id => ({ id, masterKey: item.dependencies!.masterKey, algorithmCount: 0, geometry: "unverified", binding: "unresolved", teaching: "not-prepared" }))
+    const windows = prepared && item?.dependencies ? item.dependencies.windowIds.map(id => ({ id, masterKey: item.dependencies!.masterKey, algorithmCount: 0, referenceGeometry: item.dependencies!.windowRoles?.find(w => w.windowId === id) ?? null, geometry: "unverified", binding: "unresolved", teaching: "not-prepared" }))
       : (queue?.windows.filter(w => w.scopeId && scopeIds.has(w.scopeId)) ?? []).map(w => ({ id: one(w.rawFields.ID), masterKey: one(w.rawFields.ParentId), algorithmCount: w.algorithmIds.length, geometry: w.geometryReview, binding: w.bindingReview, teaching: "preserved-unverified" }));
     const atEagle = ["Confirm current work-order population, board side, module and stage."];
     if (group === "engineering-dnp") atEagle.push("Decide fitted/DNP for this work order; do not enable a disabled DNP draft merely because a native record exists.");
@@ -55,6 +55,7 @@ export function preparationWork(accounting: PreparationAccounting[], items: Prep
     if (prepared) atEagle.push("Verify the prepared placement identity, native CAD correspondence, origin, angle and every listed local window; manual model/placement recreation is not required if qualification passes.",
       "Resolve owned pad bindings, dependent windows and FOV assignment before enabling.",
       "Teach required body/presence, leads/solder, polarity, OCR, Blob, lighting and height on the actual board; no template image algorithms were transferred.");
+    if (prepared && component.windowPreparation === "constructed-body-terminal-geometry") atEagle.push("Qualify the new body origin, local Master and each owned terminal-land reference window. Terminal-land geometry is not lead/solder teaching. Verify the native coordinate convention and any Eagle binding or model synchronization preserves the initial placement; that behavior remains unverified.");
     if (partialWindows) atEagle.push(`Partial local-window preparation: resolve each omitted intended inspection before enabling: ${omittedWindows.map(w => `${w.windowId} (${w.reasons.join(", ")})`).join("; ")}. Create/teach any required missing window with a supported local parent; review body settings and implicit window-dependent settings. No omitted window is an approved inspection exclusion.`);
     if (existed) atEagle.push("Preserve existing teaching; review flagged bindings/origins/windows and shared Master scope. Reteach only where review or a geometry change requires it.");
     atEagle.push("Complete Eagle open/save/reopen qualification and physical inspection before enabling intended parts; record machine-specific validation separately.");
@@ -66,7 +67,7 @@ export function preparationWork(accounting: PreparationAccounting[], items: Prep
       mountingEvidence: component.mountingEvidence ?? "unknown", sourcePath: component.sourcePath ?? null,
       placementIds: item?.dependencies ? [item.dependencies.partId] : component.placementIds,
       masterKeys: keys, windows, omittedWindows,
-      windowPreparation: prepared ? (partialWindows ? "partial-closed-window-subset" : "complete-template-window-copy") : "not-prepared-by-this-candidate",
+      windowPreparation: prepared ? (partialWindows ? "partial-closed-window-subset" : component.windowPreparation ?? item?.dependencies?.windowPreparation ?? "complete-template-window-copy") : "not-prepared-by-this-candidate",
       sharedMasterScopes: scopes.map(s => ({ masterKey: s.masterKeyLiteral, placementCount: s.partIds.length, scopeId: s.id })),
       nativeCreation: prepared ? "prepared-offline" : existed ? "existing-preserved" : pending ? "proposal-awaiting-review" : "required-if-populated",
       nativePlacement: prepared ? "prepared-offline-verify-at-Eagle" : existed ? "existing-preserved" : "required-if-populated",
@@ -93,6 +94,7 @@ export function preparationWork(accounting: PreparationAccounting[], items: Prep
       preparedReferences: rows.filter(r => r.nativeCreation === "prepared-offline").length,
       preparedWithCompleteTemplateWindowCopy: rows.filter(r => r.nativeCreation === "prepared-offline" && r.windowPreparation === "complete-template-window-copy").length,
       preparedWithPartialWindows: rows.filter(r => r.nativeCreation === "prepared-offline" && r.windowPreparation === "partial-closed-window-subset").length,
+      preparedWithConstructedGeometry: rows.filter(r => r.nativeCreation === "prepared-offline" && r.windowPreparation === "constructed-body-terminal-geometry").length,
       proposalsAwaitingReview: rows.filter(r => r.nativeCreation === "proposal-awaiting-review").length,
       preparedPopulatedSmtIntent: rows.filter(r => r.nativeCreation === "prepared-offline" && r.category === "populated-smt-intent").length,
       missingPopulatedSmtIntent: rows.filter(r => ["required-if-populated", "proposal-awaiting-review"].includes(r.nativeCreation) && r.category === "populated-smt-intent").length,

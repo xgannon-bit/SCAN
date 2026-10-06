@@ -35,6 +35,14 @@ remain empty. Eagle compatibility and teaching are unverified.
 See [disabled native preparation](disabled-draft-preparation.md) for the exact
 contract and qualification boundaries.
 
+An explicit reviewed manufacturer profile can also construct a missing symmetric
+two-terminal body and owned terminal-land reference model without an identical
+native footprint template. Review/apply, complete transport, source-derived window
+roles and current/historical profile persistence are integrated. New models remain
+disabled with no algorithms or bindings. Drawing matches are reviewed inputs;
+native local-frame interpretation, model metadata and teaching remain unverified.
+See [paired-terminal construction](paired-terminal-construction.md).
+
 1. Source-format defects: combined X/Y columns, numeric text, explicit unit conversion, coordinate-format declarations and revision inconsistencies.
 2. Cross-file alignment: side, origin, units, angle convention, mirror and module transforms, with independent correspondences and residual checks.
 3. Job model defects: duplicate enabled placements, displaced ROIs, dangling relationships, incorrect component-pad associations and inconsistent template reference origins.

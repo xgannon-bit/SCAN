@@ -14,7 +14,7 @@ from .snapshot_capture import SnapshotSelection, CaptureBlocked
 def run(source, layout_path, review, control):
     try:
         expected = {'action', 'layoutSha256'} if control.get('action') == 'draft-review' else {'action', 'layoutSha256', 'reviewDigest', 'accepted', 'reviewer', 'acknowledgement'}
-        if set(control) != expected:
+        if set(control) - {'packageProfiles'} != expected:
             raise CaptureBlocked('PREPARATION_REQUEST', 'Preparation review fields are missing or unexpected.')
         selected = review['preflight']['selection']
         if selected['job']['role'] != 'main' or not selected['master'] or selected['master']['role'] != 'main':
@@ -31,7 +31,7 @@ def run(source, layout_path, review, control):
             job, master = original.read(selected['job']['member']), original.read(selected['master']['member'])
         if any(len(x) > 16_000_000 for x in (job, master)):
             raise CaptureBlocked('XML_LIMIT', 'Selected documents exceed the bounded preparation profile.')
-        plan = automatic_plan(job, master, pcb)
+        plan = automatic_plan(job, master, pcb, control.get('packageProfiles'))
         selection = SnapshotSelection(selected['root'], selected['job']['member'], 'main', selected['master']['member'], 'main')
         archive_hash = review['preflight']['source']['sha256']
         digest = package_digest(archive_hash, selection, plan)
@@ -39,7 +39,7 @@ def run(source, layout_path, review, control):
             return {'status': 'success', 'artifactType': 'scan.native-preparation-review', 'plan': plan, 'digest': digest,
                     'accounting': component_accounting(job, plan), 'padBindingWork': diagnose_pad_bindings(job, master, pcb),
                     'qualificationOnly': True, 'machineExportAllowed': False}
-        if set(control) != {'action', 'layoutSha256', 'reviewDigest', 'accepted', 'reviewer', 'acknowledgement'} or control['reviewDigest'] != digest:
+        if set(control) - {'packageProfiles'} != {'action', 'layoutSha256', 'reviewDigest', 'accepted', 'reviewer', 'acknowledgement'} or control['reviewDigest'] != digest:
             raise CaptureBlocked('PREPARATION_STALE', 'The complete reviewed plan must match fresh source bytes and selected snapshots.')
         if control['acknowledgement'] != 'QUALIFICATION ONLY' or not isinstance(control['reviewer'], str) or not 0 < len(control['reviewer'].strip()) <= 256:
             raise CaptureBlocked('PREPARATION_APPROVAL', 'Name the reviewer and acknowledge disabled qualification-only output.')
@@ -77,7 +77,7 @@ def run(source, layout_path, review, control):
         result['software']['writer'] = plan['profile']
         for name in ('native_preparation.py', 'native_preparation_review.py', 'disabled_draft.py',
                      'disabled_draft_package.py', 'accel_ascii.py', 'snapshot_capture.py', 'job_intake.py',
-                     'native_pad_binding.py', 'native_model_geometry.py', 'native_window_subset.py'):
+                     'native_pad_binding.py', 'native_model_geometry.py', 'native_window_subset.py', 'paired_terminal_constructor.py'):
             result['software']['codeSha256'][name] = sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
         applied = [item for item in plan['items'] if item.get('digest') in recipe['accepted']]
         output = Path(source).parent / 'result.engineering.zip'
@@ -97,6 +97,7 @@ def run(source, layout_path, review, control):
                     'newPlacementMasterWindowClosure': 'passed', 'newInspectionEnabled': False,
                     'preparedWithCompleteTemplateWindowCopy': sum(i['dependencies']['windowPreparation'] == 'complete-template-window-copy' for i in applied),
                     'preparedWithPartialWindows': sum(i['dependencies']['windowPreparation'] == 'partial-closed-window-subset' for i in applied),
+                    'preparedWithConstructedGeometry': sum(i['dependencies']['windowPreparation'] == 'constructed-body-terminal-geometry' for i in applied),
                     'padBinding': 'unresolved', 'dependentWindowGeometry': 'unverified', 'EagleOpenSaveReopen': 'not-performed',
                     'opticalTeaching': 'not-transferred', 'machineValidation': 'not-performed', 'release': 'not-granted'}}.items():
                 bundle.writestr(name, json.dumps(document, ensure_ascii=True, indent=2))
@@ -106,7 +107,7 @@ def run(source, layout_path, review, control):
                 'CANDIDATE.zip is a complete separate copy of the original native tree. Never overwrite the original, live machine job or shared library.\n'
                 'Only individually accepted new placements, job-local Masters and disabled windows are appended. Existing teaching is byte-preserved.\n'
                 'Partial-window preparations explicitly list omitted template windows and their causes; these remain unfinished Eagle work, not intentional inspection exclusions.\n'
-                'New binding/FOV lists and algorithms are empty. Template local geometry, origins and other settings are retained as unqualified preparation.\n'
+                'New binding/FOV lists and algorithms are empty. Template-copy routes retain local geometry and origins; constructed routes derive body and terminal references from exact saved package evidence and owned source pads. Native runtime frames and new-record settings remain unqualified.\n'
                 'Temp/backup snapshots still contain ORIGINAL state; never silently substitute them.\n'
                 'At Eagle verify disabled placement identities, local origin and every dependent window, assign owned pads/FOVs and perform image-dependent teaching.\n'
                 'Record exact Eagle build and machine identity; compare original control save and candidate open/save/reopen. Stop on conversion or sync prompts.\n'

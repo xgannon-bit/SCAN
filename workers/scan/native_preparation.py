@@ -251,7 +251,9 @@ def _plan(j, m, layout, choice, allocate):
             'qualificationOnly': True, 'machineExportAllowed': False}
 
 
-def plan_preparation(job, master, pcb, choices):
+def plan_preparation(job, master, pcb, choices, package_profiles=None):
+    from .paired_terminal_constructor import validate_profiles, construct
+    profiles = validate_profiles([] if package_profiles is None else package_profiles)
     if not isinstance(choices, list) or len(choices) > 1000:
         _fail('PREPARATION_SELECTION', 'At most 1000 explicit missing-part/template scopes are supported.')
     for raw, paths in ((job, ('JobContainer/PartDataList',)), (master, ('JobContainer/PartDataList', 'JobContainer/WindowDataList'))):
@@ -277,21 +279,30 @@ def plan_preparation(job, master, pcb, choices):
         seen.add(scope)
         # Allocate only after every compatibility check, so held items consume no IDs.
         try:
-            item = _plan(j, m, layout, choice, allocate)
+            if isinstance(choice, dict) and 'packageProfileId' in choice:
+                if set(choice) != {'targetSourcePath', 'moduleId', 'templatePartId', 'templateMasterKey', 'packageProfileId'} or any(not isinstance(v, str) or not 0 < len(v) <= 2048 for v in choice.values()):
+                    _fail('PACKAGE_SELECTION', 'Unexpected constructor selection fields.')
+                matches = [p for p in profiles if p['id'] == choice['packageProfileId']]
+                if len(matches) != 1 or (choice['templatePartId'], choice['templateMasterKey']) != (matches[0]['seedPartId'], matches[0]['seedMasterKey']):
+                    _fail('PACKAGE_SELECTION', 'The selected constructor and structural seed must match the exact profile.')
+                item = construct(j, m, layout, pcb, choice, matches[0], allocate)
+            else:
+                item = _plan(j, m, layout, choice, allocate)
             item['digest'] = recipe_digest(item)
             items.append({'status': 'ready-for-review', **item})
         except CaptureBlocked as error:
             refs = [p['refdes'] for p in layout['placements'] if p['sourcePath'] == choice['targetSourcePath']]
             items.append({'status': 'held', 'selection': choice, 'reference': refs[0] if len(refs) == 1 else None,
                           'code': error.code, 'reason': str(error)})
-    return json.loads(_canonical({'artifactType': 'scan.native-preparation-plan', 'schemaVersion': '1', 'profile': PROFILE,
+    evidence = {'packageProfiles': profiles} if profiles else {}
+    return json.loads(_canonical({'artifactType': 'scan.native-preparation-plan', 'schemaVersion': '1', 'profile': PROFILE, **evidence,
         'source': {'jobSha256': sha256(job).hexdigest(), 'masterSha256': sha256(master).hexdigest(), 'layoutSha256': sha256(pcb).hexdigest()},
         'choices': choices, 'items': items, 'coverage': _coverage(j, layout, items),
         'remaining': REMAINING, 'qualificationOnly': True, 'machineExportAllowed': False}))
 
 
 def apply_preparation(job, master, pcb, recipe, accepted_digest):
-    fresh = plan_preparation(job, master, pcb, recipe['choices'])
+    fresh = plan_preparation(job, master, pcb, recipe['choices'], recipe.get('packageProfiles'))
     accepted = recipe.get('accepted', [])
     if not isinstance(accepted, list) or not accepted or len(set(accepted)) != len(accepted):
         _fail('PREPARATION_APPROVAL', 'Review and accept at least one unique exact component proposal.')
@@ -371,7 +382,7 @@ def suggest_choices(job, pcb):
     return choices
 
 
-def automatic_plan(job, master, pcb):
+def automatic_plan(job, master, pcb, package_profiles=None):
     """Prefer the first structurally supported source-derived template per scope.
 
     This is a proposal selection, never approval. Alternative failures are kept
@@ -405,7 +416,28 @@ def automatic_plan(job, master, pcb):
         if partial is not None:
             preferred = partial
         chosen.append(preferred)
-    return plan_preparation(job, master, pcb, chosen)
+    from .paired_terminal_constructor import validate_profiles
+    profiles = validate_profiles([] if package_profiles is None else package_profiles)
+    selected_scopes = {(c['targetSourcePath'], c['moduleId']) for c in chosen}
+    for target in layout['placements']:
+        matching = [p for p in profiles if (p['patternRef'], p['graphicsRef'], p['compRef']) ==
+                    (target['patternRef'], target['patternGraphicsNameRef'], target['component']['compRef'])]
+        if len(matching) > 1:
+            _fail('PACKAGE_PROFILE_AMBIGUOUS', 'Multiple drawing profiles match the same owned package.')
+        if not matching:
+            continue
+        profile = matching[0]
+        for cad in j.findall('CadData/CpList/Cp'):
+            module = _text(cad, 'ModuleID')
+            if _text(cad, 'RefID') != target['refdes'] or any(_text(p, 'RefID') == target['refdes'] and _text(p, 'ParentId') == module for p in j.findall('PartDataList/PartData')):
+                continue
+            scope = (target['sourcePath'], module)
+            if scope in selected_scopes:
+                _fail('PACKAGE_ROUTE_AMBIGUOUS', 'Choose either exact template reuse or an explicit constructor for this scope.')
+            selected_scopes.add(scope)
+            chosen.append({'targetSourcePath': target['sourcePath'], 'moduleId': module, 'templatePartId': profile['seedPartId'],
+                           'templateMasterKey': profile['seedMasterKey'], 'packageProfileId': profile['id']})
+    return plan_preparation(job, master, pcb, chosen, profiles)
 
 
 def component_accounting(job, plan, accepted=()):
