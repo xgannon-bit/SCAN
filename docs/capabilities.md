@@ -4,7 +4,7 @@ These are product targets, not a declaration of implemented format support.
 
 ## Integrated offline evaluation route
 
-See [the evaluation guide](evaluation-guide.md). Repair Review now connects selected-source analysis to exact reviewed scalar proposals, explicit qualification acknowledgement, complete native-copy output and a reopenable project in one download. Complete disabled part preparation is also integrated: compatible source-owned job-local templates produce new placements, local Masters and remapped disabled windows after individual review. The local X, disable and preparation operations are qualification experiments. Their evidence is operator supplied; the writer verifies source/identity/byte preservation, not engineering validity. Binding writes remain held. This does not complete independent whole-board diagnosis or prove a repaired inspection.
+See [the evaluation guide](evaluation-guide.md). Repair Review now connects selected-source analysis to exact reviewed scalar proposals, explicit qualification acknowledgement, complete native-copy output and a reopenable project in one download. Complete disabled part preparation is also integrated: compatible source-owned job-local templates produce new placements, local Masters and scoped disabled windows after individual review. The local X, disable and preparation operations are qualification experiments. Their evidence is operator supplied; the writer verifies source/identity/byte preservation, not engineering validity. Binding writes remain held. This does not complete independent whole-board diagnosis or prove a repaired inspection.
 
 | Requested requirement | Current implementation / remaining gap |
 | --- | --- |

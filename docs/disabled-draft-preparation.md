@@ -19,9 +19,10 @@ separate adapter; no nearest-pad association or scan-free job invention occurs.
 
 A compatible existing job-local Master provides rectangle/window structure.
 Each accepted part gets a unique placement ID, MasterKey and number, complete
-new Master record, and complete disabled windows. Internal parent/alignment
-window links and shared local groups are remapped. Window IDs are scoped to their
-Master in the source; newly allocated IDs reserve observed identities and
+new Master record, and complete disabled windows. Window IDs and groups retain their exact local keys and links within the new
+Master scope. The source can use alphabetic window keys and reuse them across
+Masters; these are not global numeric placement IDs. Only placement, Master and
+number identities are newly allocated, reserving observed numeric identities and
 references across both documents, including dangling references.
 
 Placement ROI and stored center translate by target native CAD minus template

@@ -125,7 +125,7 @@ def _plan(j, m, layout, choice, allocate):
     if not windows or len(windows) > 256:
         _fail('PREPARATION_WINDOWS', 'A bounded complete template window set is required.')
     ids = [_text(w, 'ID') for w in windows]
-    if len(set(ids)) != len(ids) or any(not re.fullmatch(r'[1-9][0-9]{0,8}', wid) for wid in ids):
+    if len(set(ids)) != len(ids) or any(not re.fullmatch(r'(?:[1-9][0-9]{0,8}|[A-Za-z][A-Za-z0-9]{0,127})', wid) for wid in ids):
         _fail('PREPARATION_WINDOW_ID', 'Template window IDs are not unique within the selected Master scope.')
     for w in windows:
         _contract(w, WINDOW); _rectangle(w, 'RelRoi')
@@ -136,8 +136,11 @@ def _plan(j, m, layout, choice, allocate):
         if _text(w, 'UseWndPoly') not in {'False', '0'}:
             _fail('PREPARATION_POLYGON', 'Polygon window geometry is outside this rectangle profile.')
     pid, key, number = allocate(), allocate(), allocate()
-    wid_map = {wid: allocate() for wid in ids}
-    gid_map = {gid: allocate() for gid in sorted({_text(w, 'GroupID') for w in windows}) if gid != '0'}
+    # The source reuses local window keys across different Masters. These are
+    # not global placement identities (real keys can be alphabetic). Keep their
+    # exact native format and local group meanings; only their Master scope moves.
+    wid_map = {wid: wid for wid in ids}
+    gid_map = {gid: gid for gid in sorted({_text(w, 'GroupID') for w in windows}) if gid != '0'}
     newpart, newmodel = deepcopy(part), deepcopy(model)
     dx, dy = _number(tc, 'X') - _number(oc, 'X'), _number(tc, 'Y') - _number(oc, 'Y')
     if any(abs(value) > 1e6 for value in (roi['cx'] + dx, roi['cy'] + dy,
@@ -175,6 +178,8 @@ def _plan(j, m, layout, choice, allocate):
     return {'selection': choice, 'reference': target['refdes'], 'templateReference': ref, 'enabled': False,
             'changes': changes, 'dependencies': {'partId': pid, 'masterKey': key, 'number': number,
              'moduleId': module, 'windowIds': list(wid_map.values()), 'groupIds': list(gid_map.values()),
+             'windowKeyPolicy': 'exact-template-local-keys-in-new-master-scope',
+             'groupKeyPolicy': 'exact-template-local-groups-in-new-master-scope',
              'newAlgorithms': 0, 'templateAlgorithmsNotTransferred': omitted_algorithms, 'sharedLibrariesChanged': False},
             'basis': {'footprint': _footprint(target), 'nativeCadTargetId': _text(tc, 'ID'), 'nativeCadTemplateId': _text(oc, 'ID'),
                       'translationNativeMm': [dx, dy], 'originOffsetPreserved': True,

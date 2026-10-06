@@ -145,6 +145,25 @@ class NativePreparationTests(unittest.TestCase):
         self.assertIn(b'<WindowDataList />', out['job'])
         self.assertEqual(len(ET.fromstring(out['master']).findall('WindowDataList/WindowData')), 5)
 
+    def test_native_alphabetic_window_keys_and_groups_preserve_format_and_local_links(self):
+        m = ET.fromstring(self.master)
+        windows = m.findall('WindowDataList/WindowData')
+        for w, name in zip(windows, ['InventedWindow0', 'InventedWindow1']):
+            w.find('ID').text = name
+        windows[1].find('ParentWndId').text = 'InventedWindow0'
+        windows[1].find('AlignWndID').text = 'InventedWindow0'
+        raw = ET.tostring(m); plan = self.review(master=raw)
+        self.assertTrue(all(i['status'] == 'ready-for-review' for i in plan['items']))
+        recipe = {**plan, 'accepted': [i['digest'] for i in plan['items']]}
+        out = apply_preparation(self.job, raw, self.pcb, recipe, recipe_digest(recipe))
+        result = ET.fromstring(out['master'])
+        for item in plan['items']:
+            new = [w for w in result.findall('WindowDataList/WindowData') if w.findtext('ParentId') == item['dependencies']['masterKey']]
+            self.assertEqual([w.findtext('ID') for w in new], ['InventedWindow0', 'InventedWindow1'])
+            self.assertEqual(new[1].findtext('ParentWndId'), 'InventedWindow0')
+            self.assertEqual(new[1].findtext('AlignWndID'), 'InventedWindow0')
+            self.assertEqual([w.findtext('GroupID') for w in new], ['9', '9'])
+
     def test_polar_setting_is_preserved_unqualified_without_inventing_a_transform(self):
         job = ET.fromstring(self.job)
         job.find('PartDataList/PartData/ptSetPolarPos/X').text = '0.02'
