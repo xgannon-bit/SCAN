@@ -77,7 +77,7 @@ def run(source, layout_path, review, control):
         result['software']['writer'] = plan['profile']
         for name in ('native_preparation.py', 'native_preparation_review.py', 'disabled_draft.py',
                      'disabled_draft_package.py', 'accel_ascii.py', 'snapshot_capture.py', 'job_intake.py',
-                     'native_pad_binding.py', 'native_model_geometry.py', 'native_window_subset.py', 'paired_terminal_constructor.py'):
+                     'native_pad_binding.py', 'native_model_geometry.py', 'native_window_subset.py', 'paired_terminal_constructor.py', 'diode_constructor.py'):
             result['software']['codeSha256'][name] = sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
         applied = [item for item in plan['items'] if item.get('digest') in recipe['accepted']]
         output = Path(source).parent / 'result.engineering.zip'

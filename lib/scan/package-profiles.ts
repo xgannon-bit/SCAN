@@ -5,6 +5,12 @@ export function validatePackageProfiles(value: unknown): PackageProfile[] {
   const keys = "attachedPatternName,body,bodyWindowId,compRef,drawing,electrode,graphicsRef,id,kind,nativePartNames,padPinMap,patternRef,seedMasterKey,seedPartId,terminalWindowId";
   const ids = new Set();
   for (const p of value) {
+    if (p?.kind === "polarized-two-terminal-body-v1") {
+      validateDiodeProfile(p);
+      if (ids.has(p.id)) throw new Error("Duplicate package evidence identity.");
+      ids.add(p.id);
+      continue;
+    }
     if (!p || typeof p !== "object" || Array.isArray(p) || Object.keys(p).sort().join() !== keys || p.kind !== "symmetric-two-terminal-body-v1" || typeof p.id !== "string" || !p.id || p.id.length > 2048 || ids.has(p.id)) throw new Error("Invalid package evidence identity.");
     ids.add(p.id);
     for (const k of ["patternRef", "graphicsRef", "compRef", "attachedPatternName", "seedPartId", "seedMasterKey", "bodyWindowId", "terminalWindowId"]) if (typeof p[k] !== "string" || !p[k] || p[k].length > 2048 || p[k].includes("\0")) throw new Error("Invalid package evidence literal.");
@@ -19,4 +25,29 @@ export function validatePackageProfiles(value: unknown): PackageProfile[] {
     if (!map || typeof map !== "object" || Array.isArray(map) || Object.keys(map).length !== 2 || new Set(Object.values(map)).size !== 2 || [...Object.keys(map), ...Object.values(map)].some(n => typeof n !== "string" || !/^[1-9][0-9]{0,3}$/.test(n))) throw new Error("Invalid terminal pad/pin map.");
   }
   return value as PackageProfile[];
+}
+
+function validateDiodeProfile(p: Record<string, any>) {
+  const common = "attachedPatternName,body,bodyWindowId,compRef,drawing,graphicsRef,id,kind,nativePartNames,padPinMap,patternRef,seedMasterKey,seedPartId,terminalWindowId";
+  if (Object.keys(p).sort().join() !== [...common.split(","), "anchor", "polarity", "electrodes"].sort().join()) throw new Error("Invalid diode evidence fields.");
+  const finite = (n: unknown) => typeof n === "number" && Number.isFinite(n) && Math.abs(n) <= 1000;
+  if (!p.body || Object.keys(p.body).sort().join() !== "heightMm,widthMm" || !Object.values(p.body).every(finite) || p.body.widthMm <= 0 || p.body.heightMm <= 0) throw new Error("Invalid diode body dimensions.");
+  const { anchor, polarity, electrodes, ...legacy } = p;
+  validatePackageProfiles([{ ...legacy, kind: "symmetric-two-terminal-body-v1", body: { ...p.body, offsetAlongMm: 0, offsetAcrossMm: 0 }, electrode: { widthMm: 1, heightMm: 1, centerSeparationMm: 1, minimumOverlapFraction: .5 } }]);
+  const evidence = (e: Record<string, any>) => {
+    if (!e || Object.keys(e).sort().join() !== "documentId,layoutSha256,locator,method,page,sha256,statement" || !["numbered-footprint", "component-library", "dimensioned-assembly", "manufacturer-package-correspondence"].includes(e.method) || ["documentId", "locator", "statement"].some(k => typeof e[k] !== "string" || !e[k] || e[k].length > 4096 || e[k].includes("\0")) || [e.sha256, e.layoutSha256].some(h => typeof h !== "string" || !/^[a-f0-9]{64}$/.test(h)) || !Number.isInteger(e.page) || e.page < 1 || e.page > 100) throw new Error("Diode evidence needs a numbered footprint/library or dimensioned correspondence tied to the source layout; appearance and names are insufficient.");
+  };
+  // Null records are retained as precise evidence holds; they cannot write.
+  if (anchor !== null) {
+    if (!anchor || Object.keys(anchor).sort().join() !== "evidence,offsetAcrossMm,offsetAlongMm,padNumber" || !Object.hasOwn(p.padPinMap, anchor.padNumber) || !finite(anchor.offsetAlongMm) || !finite(anchor.offsetAcrossMm)) throw new Error("Invalid diode body datum.");
+    evidence(anchor.evidence);
+  }
+  if (polarity !== null) {
+    if (!polarity || Object.keys(polarity).sort().join() !== "evidence,pinRoles" || !polarity.pinRoles || Array.isArray(polarity.pinRoles) || Object.keys(polarity.pinRoles).sort().join() !== Object.values(p.padPinMap).sort().join() || Object.values(polarity.pinRoles).sort().join() !== "anode,cathode") throw new Error("Explicit anode/cathode roles must close on the linked source pins.");
+    evidence(polarity.evidence);
+  }
+  if (electrodes !== null) {
+    if (!Array.isArray(electrodes) || electrodes.length !== 2 || electrodes.map(e => e?.role).sort().join() !== "anode,cathode" || electrodes.some(e => !e || Object.keys(e).sort().join() !== "centerAcrossMm,centerAlongMm,heightMm,minimumOverlapFraction,role,widthMm" || ![e.centerAcrossMm, e.centerAlongMm, e.widthMm, e.heightMm, e.minimumOverlapFraction].every(finite) || e.widthMm <= 0 || e.heightMm <= 0 || e.minimumOverlapFraction < .5 || e.minimumOverlapFraction > 1)) throw new Error("Invalid separate diode terminal drawing geometry.");
+    if (electrodes.find(e => e.role === "cathode").centerAlongMm <= electrodes.find(e => e.role === "anode").centerAlongMm) throw new Error("Drawing axes must run from anode to cathode.");
+  }
 }

@@ -13,7 +13,7 @@ type Item = { status: string; reference?: string; digest?: string; reason?: stri
   selection: { targetSourcePath: string; moduleId: string; templatePartId: string; templateMasterKey: string };
   templateReference?: string; changes?: { document: string; container: string; afterXml: string }[];
   dependencies?: { partId: string; masterKey: string; windowIds: string[]; templateAlgorithmsNotTransferred: number; windowPreparation?: string; windowRoles?: { windowId: string; role: string; padNumber: string | null; pin: string | null; sourcePath: string | null }[]; omittedWindows?: PreparationAccounting["omittedWindows"] };
-  basis?: { translationNativeUnits: number[]; originOffsetPreserved: boolean; geometryRoute?: string; nativeCadAngleDeltaDegrees?: number; sourceAngleDeltaDegrees?: number; storedCenterPolicy?: string }; remaining?: string[] };
+  basis?: { translationNativeUnits: number[]; originOffsetPreserved: boolean; geometryRoute?: string; nativeCadAngleDeltaDegrees?: number; sourceAngleDeltaDegrees?: number; storedCenterPolicy?: string; cathodeDirectionPatternAxes?: number[]; cathodeDirectionNativeBoardAxes?: number[] }; remaining?: string[] };
 type Review = { status: "success"; artifactType: "scan.native-preparation-review"; digest: string;
   plan: { source: { jobSha256: string; masterSha256: string; layoutSha256: string }; items: Item[] };
   accounting: PreparationAccounting[]; padBindingWork?: PreparationBindingWork };
@@ -49,9 +49,13 @@ export function NativePreparationReview() {
       if (abort.signal.aborted || currentScope.current !== start) return;
       const next = value as Review;
       if (next.plan.source.layoutSha256 !== layout.result!.sourceSha256 || next.plan.source.jobSha256 !== archiveReview!.preflight.selection.job.sha256 || next.plan.source.masterSha256 !== archiveReview!.preflight.selection.master?.sha256) throw new Error("Review source identities differ.");
-      const retain = saved.review?.digest === next.digest && saved.review.sourceContext === session.sourceContext;
+      // Adding a package profile changes the plan receipt, not every unchanged
+      // item. Retain only exact item decisions from these same captured sources.
+      const prior = [saved.review, ...[...saved.history].reverse().map(h => h.review)].find(r => r &&
+        r.sourceContext === session.sourceContext && r.archiveSha256 === archiveReview!.preflight.source.sha256 &&
+        r.layoutSha256 === layout.result!.sourceSha256);
       setNativePreparation(old => ({ ...old, review: { digest: next.digest, sourceContext: session.sourceContext!, archiveSha256: archiveReview!.preflight.source.sha256,
-        layoutSha256: layout.result!.sourceSha256, decisions: next.plan.items.filter(i => i.status === "ready-for-review").map(i => ({ digest: i.digest!, reference: i.reference!, decision: retain ? saved.review!.decisions.find(d => d.digest === i.digest)?.decision ?? "pending" : "pending" })) } }));
+        layoutSha256: layout.result!.sourceSha256, decisions: next.plan.items.filter(i => i.status === "ready-for-review").map(i => ({ digest: i.digest!, reference: i.reference!, decision: prior?.decisions.find(d => d.digest === i.digest && d.reference === i.reference)?.decision ?? "pending" })) } }));
       setReview(next); setMessage("Complete source-derived proposals recomputed. Review each part's exact appended records; original records remain unchanged.");
     } catch (error) { if (!abort.signal.aborted) setMessage(error instanceof Error ? error.message : "Preparation review failed."); }
     finally { if (controller.current === abort) { controller.current = null; setBusy(false); } }
@@ -95,6 +99,7 @@ export function NativePreparationReview() {
       event.target.value = "";
     }} /></label></details>
     {!!saved.packageProfiles?.length && <p>{saved.packageProfiles.length} reviewed package evidence profiles retained in this project and new candidate history. Drawing matches are explicit inputs; native runtime geometry still requires Eagle qualification.</p>}
+    {saved.packageProfiles?.some(p => p.kind === "polarized-two-terminal-body-v1") && <p>Diode preparation requires a documented body datum and explicit pad/pin anode and cathode roles. Unequal lands never establish a body center by themselves. Missing evidence holds the affected parts. Native polarity teaching and pad bindings remain unverified.</p>}
     {!canReview && <p><Link href="/intake">Select a complete job with both main snapshots and read its source layout</Link> to prepare parts. CAD/Gerber/BOM review can continue independently.</p>}
     <Button disabled={!canReview || busy} onClick={analyze}>{busy ? "Working…" : "Find supported native preparation"}</Button>
     {saved.review && !review && <p>Saved exact decisions are retained. Recompute from verified source bytes to view the proposals and export.</p>}
@@ -115,6 +120,7 @@ export function NativePreparationReview() {
         {item.status === "held" ? <p>{item.code}: {item.reason}</p> : <>
           <p>Source category: <strong>{work?.rows.find(r => r.reference === item.reference && r.module === item.selection.moduleId)?.category ?? "population unresolved"}</strong>. Engineering population evidence does not approve this work order. Any DNP draft stays disabled pending that decision.</p>
           {item.dependencies?.windowPreparation === "constructed-body-terminal-geometry" && <p><strong>New package construction.</strong> Manufacturer body and owned terminal-land reference geometry; the source pad/pin map is verified. The selected original record supplies field formats only. Local native window axes, model metadata and terminal inspection properties remain qualification work; land reference windows are not taught lead/solder inspections.</p>}
+          {item.basis?.geometryRoute === "polarized-two-terminal-body-v1" && <p><strong>Diode polarity evidence.</strong> Anode/cathode terminal roles and the body datum come from explicit source-bound evidence. Cathode direction in pattern axes: {JSON.stringify(item.basis.cathodeDirectionPatternAxes)}; native board axes: {JSON.stringify(item.basis.cathodeDirectionNativeBoardAxes)}. These are geometric directions, not taught polarity inspections. Verify them at Eagle before teaching or enabling.</p>}
           <p>Module {item.selection.moduleId}; structural seed/template {item.templateReference} (placement {item.selection.templatePartId}, Master {item.selection.templateMasterKey}). New placement {item.dependencies!.partId}, local Master {item.dependencies!.masterKey}, {item.dependencies!.windowIds.length} linked windows. Translation in native literal units: {item.basis!.translationNativeUnits.join(", ")} (unit qualification pending). {item.basis!.originOffsetPreserved ? "Existing origin offset preserved." : "New source-derived anchor; see the exact geometry basis."} {item.dependencies?.windowPreparation === "constructed-body-terminal-geometry" ? "Body and terminal geometry is derived anew in the recorded source/native frames." : <>Angle change {item.basis!.nativeCadAngleDeltaDegrees ?? 0}°.</>} {item.basis!.storedCenterPolicy}. Local Master/window behavior remains unverified.</p>
           <p>{item.dependencies!.templateAlgorithmsNotTransferred} template algorithms remain in the original model and are omitted from the new model. All new bindings/FOV lists are empty. Population approval and inspection teaching are unresolved.</p>
           {!!item.dependencies!.omittedWindows?.length && <p><strong>Partial window preparation.</strong> {item.dependencies!.windowIds.length} locally closed windows retained. Unfinished windows: {item.dependencies!.omittedWindows.map(w => `${w.windowId}: ${w.reasons.join(", ")}`).join("; ")}. Their original teaching remains untouched. Resolve intended coverage and create/teach any required omitted window at Eagle before enabling; no inspection exclusion is approved.</p>}

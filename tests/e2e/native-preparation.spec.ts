@@ -5,9 +5,9 @@ import path from 'node:path';
 import { authoredPreparation } from '../native-preparation-fixture.mjs';
 import { makeArchive, syntheticMembers, syntheticSelection } from '../synthetic-archive.mjs';
 
-test('package construction evidence exports an actual disabled model and survives project reopening', async ({ page }, info) => {
+for (const polarized of [false, true]) test(`${polarized ? 'Diode' : 'Paired-terminal'} construction exports an actual disabled model and survives project reopening`, async ({ page }, info) => {
   const python = path.join(process.cwd(), '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
-  const result = spawnSync(python, ['-c', 'import json\nfrom workers.scan.tests.test_paired_terminal_constructor import fixture\nj,m,b,p=fixture(270)\nprint(json.dumps(dict(job=j.decode(),master=m.decode(),pcb=b.decode(),profile=p)))'], { encoding: 'utf8' });
+  const result = spawnSync(python, ['-c', `import json\nfrom workers.scan.tests.${polarized ? 'test_diode_constructor' : 'test_paired_terminal_constructor'} import fixture\nj,m,b,p=${polarized ? 'fixture(90,90,True)' : 'fixture(270)'}\nprint(json.dumps(dict(job=j.decode(),master=m.decode(),pcb=b.decode(),profile=p)))`], { encoding: 'utf8' });
   expect(result.status, result.stderr).toBe(0);
   const f = JSON.parse(result.stdout);
   await page.goto('/intake');
@@ -30,6 +30,7 @@ test('package construction evidence exports an actual disabled model and survive
   await region.getByLabel('Preparation reviewer', { exact: true }).fill('Authored constructor reviewer');
   await region.getByText('N1 · disabled model proposal', { exact: true }).click();
   await expect(region).toContainText('New package construction.');
+  if (polarized) await expect(region).toContainText('Diode polarity evidence.');
   await region.getByRole('combobox', { name: 'Decision for N1', exact: true }).selectOption('accepted');
   await region.getByRole('checkbox', { name: /I acknowledge qualification-only output/ }).check();
   const pending = page.waitForEvent('download');
@@ -43,6 +44,9 @@ with zipfile.ZipFile(sys.argv[1]) as z:
  work=json.loads(z.read('component-by-component-Eagle-work.json'));assert work['counts']['preparedWithConstructedGeometry']==1
  row=next(r for r in work['rows'] if r['reference']=='N1');assert len(row['windows'])==3 and row['windows'][1]['referenceGeometry']['pin']=='1'
  assert row['padBinding']['newBindingTuples']==0 and row['machineValidated'] is False
+ if ${polarized ? 'True' : 'False'}:
+  assert row['windows'][1]['referenceGeometry']['terminalRole']=='cathode'
+  assert any('Teach the cathode mark' in step for step in row['atEagle'])
 `, bundlePath, projectPath], { encoding: 'utf8' });
   expect(verified.status, verified.stderr).toBe(0);
   await page.reload();
@@ -54,6 +58,23 @@ with zipfile.ZipFile(sys.argv[1]) as z:
   await region.getByText('N1 · disabled model proposal', { exact: true }).click();
   await expect(region.getByRole('combobox', { name: 'Decision for N1', exact: true })).toHaveValue('accepted');
   await expect(region.getByRole('button', { name: 'Apply accepted part preparation to a separate candidate', exact: true })).toBeDisabled();
+  if (polarized) {
+    // A changed datum creates a different exact item; historical acceptance is
+    // retained only for byte-identical proposals from the same captured sources.
+    f.profile.anchor.offsetAlongMm += .01;
+    await region.getByLabel('Package geometry evidence profiles (JSON)', { exact: true }).setInputFiles({ name: 'changed-profile.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify([f.profile])) });
+    await region.getByRole('button', { name: 'Find supported native preparation', exact: true }).click();
+    await expect(region).toContainText('1 additional proposals construct a manufacturer body');
+    await region.getByText('N1 · disabled model proposal', { exact: true }).click();
+    await expect(region.getByRole('combobox', { name: 'Decision for N1', exact: true })).toHaveValue('pending');
+    f.profile.anchor = f.profile.polarity = f.profile.electrodes = null;
+    await region.getByLabel('Package geometry evidence profiles (JSON)', { exact: true }).setInputFiles({ name: 'incomplete-profile.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify([f.profile])) });
+    await region.getByRole('button', { name: 'Find supported native preparation', exact: true }).click();
+    await expect(region).toContainText('PACKAGE_DIODE_EVIDENCE_MISSING');
+    await expect(region).toContainText('anchor, polarity, electrodes');
+    await expect(region.getByRole('combobox', { name: 'Decision for N1', exact: true })).toHaveCount(0);
+    await expect(region.getByRole('button', { name: 'Apply accepted part preparation to a separate candidate', exact: true })).toBeDisabled();
+  }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 

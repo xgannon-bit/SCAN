@@ -12,7 +12,7 @@ export type PreparationAccounting = {
 export type PreparationItem = {
   status: string; reference?: string; digest?: string;
   selection: { moduleId: string };
-  dependencies?: { partId: string; masterKey: string; windowIds: string[]; windowPreparation?: string; windowRoles?: { windowId: string; role: string; padNumber: string | null; pin: string | null; sourcePath: string | null }[]; omittedWindows?: PreparationAccounting["omittedWindows"] };
+  dependencies?: { partId: string; masterKey: string; windowIds: string[]; windowPreparation?: string; windowRoles?: { windowId: string; role: string; padNumber: string | null; pin: string | null; sourcePath: string | null; terminalRole?: string }[]; omittedWindows?: PreparationAccounting["omittedWindows"] };
   remaining?: string[]; prepared?: string;
 };
 export type PreparationBindingWork = { status: string; components: { reference: string; moduleId: string; sourceOwnedPadCount: number; holdCodes: string[]; requiredEvidence: string[]; placements: { partId: string; masterKey: string; bindingTupleCount: number; literalClosedTupleCount: number; literalState: string; windowCount: number }[] }[];
@@ -56,6 +56,8 @@ export function preparationWork(accounting: PreparationAccounting[], items: Prep
       "Resolve owned pad bindings, dependent windows and FOV assignment before enabling.",
       "Teach required body/presence, leads/solder, polarity, OCR, Blob, lighting and height on the actual board; no template image algorithms were transferred.");
     if (prepared && component.windowPreparation === "constructed-body-terminal-geometry") atEagle.push("Qualify the new body origin, local Master and each owned terminal-land reference window. Terminal-land geometry is not lead/solder teaching. Verify the native coordinate convention and any Eagle binding or model synchronization preserves the initial placement; that behavior remains unverified.");
+    const polarized = item?.dependencies?.windowRoles?.some(w => w.terminalRole === "cathode");
+    if (prepared && polarized) atEagle.push("Check the recorded source pad/pin anode and cathode assignment against the fitted part and manufacturer marking. Teach the cathode mark in Eagle; native polarity-position fields remain unlearned and unqualified. Verify polarity and body/terminal positions after binding, teaching, save and reopen.");
     if (partialWindows) atEagle.push(`Partial local-window preparation: resolve each omitted intended inspection before enabling: ${omittedWindows.map(w => `${w.windowId} (${w.reasons.join(", ")})`).join("; ")}. Create/teach any required missing window with a supported local parent; review body settings and implicit window-dependent settings. No omitted window is an approved inspection exclusion.`);
     if (existed) atEagle.push("Preserve existing teaching; review flagged bindings/origins/windows and shared Master scope. Reteach only where review or a geometry change requires it.");
     atEagle.push("Complete Eagle open/save/reopen qualification and physical inspection before enabling intended parts; record machine-specific validation separately.");

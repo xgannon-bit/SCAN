@@ -419,6 +419,9 @@ def automatic_plan(job, master, pcb, package_profiles=None):
     from .paired_terminal_constructor import validate_profiles
     profiles = validate_profiles([] if package_profiles is None else package_profiles)
     selected_scopes = {(c['targetSourcePath'], c['moduleId']) for c in chosen}
+    # An appended family must not renumber earlier accepted preparations. Keep
+    # the explicit saved profile order, then the original placement order.
+    matches_by_target = []
     for target in layout['placements']:
         matching = [p for p in profiles if (p['patternRef'], p['graphicsRef'], p['compRef']) ==
                     (target['patternRef'], target['patternGraphicsNameRef'], target['component']['compRef'])]
@@ -426,7 +429,8 @@ def automatic_plan(job, master, pcb, package_profiles=None):
             _fail('PACKAGE_PROFILE_AMBIGUOUS', 'Multiple drawing profiles match the same owned package.')
         if not matching:
             continue
-        profile = matching[0]
+        matches_by_target.append((target, matching[0]))
+    for target, profile in sorted(matches_by_target, key=lambda pair: profiles.index(pair[1])):
         for cad in j.findall('CadData/CpList/Cp'):
             module = _text(cad, 'ModuleID')
             if _text(cad, 'RefID') != target['refdes'] or any(_text(p, 'RefID') == target['refdes'] and _text(p, 'ParentId') == module for p in j.findall('PartDataList/PartData')):

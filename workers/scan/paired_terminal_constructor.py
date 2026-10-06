@@ -25,6 +25,13 @@ def validate_profiles(profiles):
         _fail('PACKAGE_PROFILE', 'At most 20 explicit package evidence profiles are supported.')
     ids = set()
     for p in profiles:
+        if isinstance(p, dict) and p.get('kind') == 'polarized-two-terminal-body-v1':
+            from .diode_constructor import validate_profile
+            validate_profile(p)
+            if p['id'] in ids:
+                _fail('PACKAGE_PROFILE', 'Package evidence profile IDs must be unique.')
+            ids.add(p['id'])
+            continue
         keys = {'id', 'kind', 'patternRef', 'graphicsRef', 'compRef', 'attachedPatternName', 'nativePartNames', 'drawing',
                 'body', 'electrode', 'padPinMap', 'seedPartId', 'seedMasterKey', 'bodyWindowId', 'terminalWindowId'}
         if not isinstance(p, dict) or set(p) != keys or p['kind'] != KIND:
@@ -152,7 +159,12 @@ def construct(j, m, layout, pcb, choice, profile, allocate):
     cad = _cad(j, target['refdes'], module)
     if _text(cad, 'PrntPartName') not in profile['nativePartNames']:
         _fail('PACKAGE_IDENTITY', 'Native CAD identity is not one of the explicitly matched drawing identities.')
-    geom = source_geometry(target, profile, pcb)
+    polarized = profile['kind'] == 'polarized-two-terminal-body-v1'
+    if polarized:
+        from .diode_constructor import source_geometry as diode_geometry
+        geom = diode_geometry(target, profile, pcb)
+    else:
+        geom = source_geometry(target, profile, pcb)
     angle = target['rotation']['degrees'] % 360
     native_angle = float(_number(cad, 'Ang')) % 360
     if angle % 90 or native_angle % 90 or (angle + native_angle) % 360:
@@ -217,6 +229,8 @@ def construct(j, m, layout, pcb, choice, profile, allocate):
         w = deepcopy(seeds[0 if i == 0 else 1])
         wid = f'window{i+1}'
         label = 'Body reference' if i == 0 else 'Terminal land pin ' + region['pin']
+        if polarized and i:
+            label += ' ' + region['terminalRole']
         for path, value in {'ID': wid, 'ParentId': key, 'GroupID': str(i+1), 'ENABLE': 'False', 'ParentWndId': '0',
                             'ALIGNWND': 'False', 'AlignWndID': '', 'Name': base64.b64encode(label.encode('utf-16le')).decode()}.items():
             _set(w, path, value)
@@ -226,15 +240,17 @@ def construct(j, m, layout, pcb, choice, profile, allocate):
         newwindows.append(w)
         roles.append({'windowId': wid, 'role': 'manufacturer-body-reference' if i == 0 else 'source-owned-terminal-land-reference',
                       'padNumber': region.get('padNumber'), 'pin': region.get('pin'), 'sourcePath': region.get('sourcePath')})
+        if polarized and i:
+            roles[-1]['terminalRole'] = region['terminalRole']
     changes = []
     for role, container, node in [('job', 'PartDataList', newpart), ('master', 'PartDataList', newmodel), *[('master', 'WindowDataList', w) for w in newwindows]]:
         node.tail = None
         changes.append({'document': role, 'container': 'JobContainer/' + container, 'operation': 'append-record', 'before': None, 'afterXml': ET.tostring(node, encoding='unicode')})
-    return {'selection': choice, 'reference': target['refdes'], 'templateReference': _text(part, 'RefID'), 'enabled': False,
+    result = {'selection': choice, 'reference': target['refdes'], 'templateReference': _text(part, 'RefID'), 'enabled': False,
             'changes': changes, 'dependencies': {'partId': pid, 'masterKey': key, 'number': number, 'moduleId': module,
                 'windowIds': [r['windowId'] for r in roles], 'groupIds': ['1', '2', '3'], 'windowPreparation': 'constructed-body-terminal-geometry',
                 'windowRoles': roles, 'omittedWindows': [], 'newAlgorithms': 0, 'templateAlgorithmsNotTransferred': sum(len(_one(w, 'AlgorithmDataList')) for w in seeds), 'sharedLibrariesChanged': False},
-            'basis': {'geometryRoute': KIND, 'packageProfileId': profile['id'], 'drawing': profile['drawing'],
+            'basis': {'geometryRoute': profile['kind'], 'packageProfileId': profile['id'], 'drawing': profile['drawing'],
                       'bodyGeometryMm': profile['body'], 'terminalGeometry': geom['terminals'], 'pinMap': profile['padPinMap'], 'pinMapSourcePath': geom['pinMapSourcePath'],
                       'sourceBodyOriginMm': list(geom['center']), 'sourceAngleDegrees': angle, 'nativeCadAngleDegrees': native_angle,
                       'translationNativeUnits': [cx-float(_number(part, 'Roi/cx')), cy-float(_number(part, 'Roi/cy'))],
@@ -249,3 +265,11 @@ def construct(j, m, layout, pcb, choice, profile, allocate):
                           'terminal-land-reference-is-not-taught-lead-or-solder-inspection', 'image-algorithms-not-prepared', 'FOV-assignment-required',
                           'population-side-stage-decision-required', 'Eagle-open-save-reopen-unverified', 'physical-inspection-unverified'],
             'qualificationOnly': True, 'machineExportAllowed': False}
+    if polarized:
+        result['basis'].update(bodyAnchorEvidence=geom['anchor'], polarityEvidence=geom['polarity'],
+                               cathodeDirectionPatternAxes=geom['axis'],
+                               cathodeDirectionNativeBoardAxes=[geom['axis'][0]*math.cos(radians)-geom['axis'][1]*math.sin(radians),
+                                                                geom['axis'][0]*math.sin(radians)+geom['axis'][1]*math.cos(radians)],
+                               nativePolaritySetting='unlearned-zero-sentinel-runtime-unverified')
+        result['remaining'].extend(['cathode-mark-image-teaching-required', 'native-polarity-position-and-teaching-frame-unverified'])
+    return result
