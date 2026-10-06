@@ -113,7 +113,12 @@ def _coverage(j, layout, items):
         elif len(sources) != 1:
             state, code, reason = 'held', 'PREPARATION_SOURCE_IDENTITY', 'Exactly one source-owned layout placement is required for this literal reference.'
         elif source.get('identityHolds') or not source.get('ownedPadCentersAvailable'):
-            state, code, reason = 'held', 'PREPARATION_SOURCE_GEOMETRY', 'Source ownership or pad centers are held: ' + ', '.join(sorted({h['code'] for h in source.get('identityHolds', [])}))
+            source_holds = source.get('identityHolds', []) + source.get('holds', []) + [
+                hold for pad in source.get('sourceOwnedPads', []) for hold in pad.get('holds', [])]
+            causes = ', '.join(sorted({h['code'] for h in source_holds}))
+            state, code, reason = 'held', 'PREPARATION_SOURCE_GEOMETRY', (
+                'Source ownership or pad centers are held: ' + causes if causes else
+                'Complete source-owned pad centers are unavailable; the parsed geometry does not establish this placement frame.')
         elif source.get('mountingEvidence') == 'hole-bearing':
             state, code, reason = 'held', 'PREPARATION_THROUGH_HOLE', 'Source drill evidence is nonzero. The surface-pad adapter does not create this model; decide stage-specific inspection separately.'
         elif source.get('mountingEvidence') != 'explicit-zero-holes':

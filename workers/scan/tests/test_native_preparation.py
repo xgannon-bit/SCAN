@@ -8,7 +8,7 @@ import unittest
 from xml.etree import ElementTree as ET
 import zipfile
 
-from workers.scan.native_preparation import PART, MODEL, WINDOW, automatic_plan, apply_preparation, component_accounting, recipe_digest
+from workers.scan.native_preparation import PART, MODEL, WINDOW, automatic_plan, apply_preparation, component_accounting, recipe_digest, _coverage
 from workers.scan.disabled_draft_package import package_digest, create_disabled_draft_package
 from workers.scan.snapshot_capture import SnapshotSelection, CaptureBlocked
 from workers.scan.tests.test_accel_ascii import pcb, pattern
@@ -70,6 +70,19 @@ class NativePreparationTests(unittest.TestCase):
 
     def review(self, job=None, master=None, pcb=None):
         return automatic_plan(job or self.job, master or self.master, pcb or self.pcb)
+
+    def test_source_geometry_blocker_keeps_exact_parser_cause_and_explains_empty_holds(self):
+        layout = {'placements': [{'refdes': 'N1', 'sourcePath': 'invented/placement',
+            'mountingEvidence': 'hole-bearing', 'identityHolds': [],
+            'ownedPadCentersAvailable': False, 'explicitLayerGeometry': [],
+            'holds': [{'code': 'PATTERN_VIA_GEOMETRY_UNSUPPORTED'}]}]}
+        rows = _coverage(ET.fromstring(self.job), layout, [])
+        held = next(r for r in rows if r['reference'] == 'N1')
+        self.assertEqual(held['holdCode'], 'PREPARATION_SOURCE_GEOMETRY')
+        self.assertIn('PATTERN_VIA_GEOMETRY_UNSUPPORTED', held['holdReason'])
+        layout['placements'][0]['holds'] = []
+        held = next(r for r in _coverage(ET.fromstring(self.job), layout, []) if r['reference'] == 'N1')
+        self.assertIn('Complete source-owned pad centers are unavailable', held['holdReason'])
 
     def test_complete_source_models_individual_apply_links_offsets_and_exact_rollback(self):
         plan = self.review()
