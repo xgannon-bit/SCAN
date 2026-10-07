@@ -424,7 +424,8 @@ def automatic_plan(job, master, pcb, package_profiles=None):
     matches_by_target = []
     for target in layout['placements']:
         matching = [p for p in profiles if (p['patternRef'], p['graphicsRef'], p['compRef']) ==
-                    (target['patternRef'], target['patternGraphicsNameRef'], target['component']['compRef'])]
+                    (target['patternRef'], target['patternGraphicsNameRef'], target['component']['compRef']) and
+                    ('targetSourcePaths' not in p or target['sourcePath'] in p['targetSourcePaths'])]
         if len(matching) > 1:
             _fail('PACKAGE_PROFILE_AMBIGUOUS', 'Multiple drawing profiles match the same owned package.')
         if not matching:
@@ -437,7 +438,11 @@ def automatic_plan(job, master, pcb, package_profiles=None):
                 continue
             scope = (target['sourcePath'], module)
             if scope in selected_scopes:
-                _fail('PACKAGE_ROUTE_AMBIGUOUS', 'Choose either exact template reuse or an explicit constructor for this scope.')
+                if 'targetSourcePaths' not in profile:
+                    _fail('PACKAGE_ROUTE_AMBIGUOUS', 'Choose either exact template reuse or an explicit constructor for this scope.')
+                # An explicit source-scope override selects a fresh constructor,
+                # never geometry inherited from a competing template proposal.
+                chosen = [c for c in chosen if (c['targetSourcePath'], c['moduleId']) != scope]
             selected_scopes.add(scope)
             chosen.append({'targetSourcePath': target['sourcePath'], 'moduleId': module, 'templatePartId': profile['seedPartId'],
                            'templateMasterKey': profile['seedMasterKey'], 'packageProfileId': profile['id']})

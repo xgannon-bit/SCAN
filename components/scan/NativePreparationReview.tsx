@@ -17,7 +17,8 @@ type Item = { status: string; reference?: string; digest?: string; reason?: stri
   basis?: { translationNativeUnits: number[]; originOffsetPreserved: boolean; geometryRoute?: string; nativeCadAngleDeltaDegrees?: number; sourceAngleDeltaDegrees?: number; storedCenterPolicy?: string; cathodeDirectionPatternAxes?: number[]; cathodeDirectionNativeBoardAxes?: number[] }; remaining?: string[] };
 type Review = { status: "success"; artifactType: "scan.native-preparation-review"; digest: string;
   plan: { source: { jobSha256: string; masterSha256: string; layoutSha256: string }; items: Item[] };
-  accounting: PreparationAccounting[]; padBindingWork?: PreparationBindingWork };
+  accounting: PreparationAccounting[]; padBindingWork?: PreparationBindingWork;
+  preparationIntents?: { counts: { components: number; ownedTerminalBindingIntents: number }; sharedContracts: { id: string; required: string }[] } };
 
 export function NativePreparationReview() {
   const session = useScanSession();
@@ -106,7 +107,7 @@ export function NativePreparationReview() {
     <Button disabled={!canReview || busy} onClick={analyze}>{busy ? "Working…" : "Find supported native preparation"}</Button>
     {saved.review && !review && <p>Saved exact decisions are retained. Recompute from verified source bytes to view the proposals and export.</p>}
     {review && <>
-      <p>{ready.length - partial.length - constructed.length} proposals retain the full template window set. {constructed.length > 0 && `${constructed.length} additional proposals construct a manufacturer body and two owned terminal reference windows; no teaching or binding is inferred. `}{partial.length > 0 && `${partial.length} additional proposals have explicitly partial local windows; omitted inspections require Eagle work. `}{review.accounting.filter(i => i.status === "held-no-supported-template").length} native CAD references still need a supported template or other preparation route. A proposal does not count as an applied part.</p>
+      <p>{ready.length - partial.length - constructed.length} proposals retain the full template window set. {constructed.length > 0 && `${constructed.length} additional proposals construct a manufacturer body and owned physical terminal reference windows; no teaching or binding is inferred. `}{partial.length > 0 && `${partial.length} additional proposals have explicitly partial local windows; omitted inspections require Eagle work. `}{review.accounting.filter(i => i.status === "held-no-supported-template").length} native CAD references still need a supported template or other preparation route. A proposal does not count as an applied part.</p>
       {work && <details><summary>Population, mounting evidence and exact preparation blockers</summary>
         <p>Engineering DNP and hole-bearing evidence are separate from missing populated SMT. Current work-order population and stage applicability remain unapproved; no reference is automatically excluded.</p>
         {work.heldGroups.map((group, i) => <p key={i}><strong>{group.category} · {group.references.length} · {group.code}</strong>: {group.references.map(r => `${r.reference} (module ${r.module})`).join(", ")}. {group.reason}</p>)}
@@ -115,6 +116,12 @@ export function NativePreparationReview() {
         <p>Source pad ownership and native literal links are separate evidence. Closed links or equal pad counts do not establish repaired bindings or inspections. This candidate writes no pad bindings.</p>
         {review.padBindingWork.sharedBlockers.map(blocker => <p key={blocker.code}><strong>{blocker.code} · {blocker.componentCount} references</strong>: {blocker.message}</p>)}
         <details><summary>Exact per-component source ownership and native binding work</summary><pre>{JSON.stringify(review.padBindingWork, null, 2)}</pre></details>
+      </details>}
+      {review.preparationIntents && <details><summary>Offline pad binding and FOV preparation</summary>
+        <p>{review.preparationIntents.counts.ownedTerminalBindingIntents} exact source-owned terminal/window correspondences are prepared as review intents. Coverage extents are calculated in the recorded, unqualified native-frame hypothesis. These are prospective until applied; native artwork IDs, binding tuples and FOV assignments remain unwritten.</p>
+        {review.preparationIntents.sharedContracts.map(c => <p key={c.id}><strong>{c.id}</strong>: {c.required}</p>)}
+        <details><summary>Exact per-component binding and FOV intent plan</summary><pre>{JSON.stringify(review.preparationIntents, null, 2)}</pre></details>
+        <p>The complete engineering export includes offline-binding-fov-intents.json. Project reopening rebuilds it from verified source bytes and exact proposals.</p>
       </details>}
       <label className="scan-field">Preparation reviewer<input value={saved.reviewer} maxLength={256} disabled={busy} onChange={event => { setAck(false); setNativePreparation(old => ({ ...old, reviewer: event.target.value, review: old.review ? { ...old.review, decisions: old.review.decisions.map(i => ({ ...i, decision: "pending" })) } : null })); }} /></label>
       {review.plan.items.map((item, index) => <details key={`${item.selection.targetSourcePath}:${index}`}>

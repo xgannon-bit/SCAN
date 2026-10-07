@@ -91,3 +91,12 @@ Reviewed package evidence supports a three-physical-terminal constructor with se
 A reusable numbered physical-terminal constructor separates physical package leads from extra footprint lands. Each absent lead requires explicit matched manufacturer evidence; pin 1 requires source-bound orientation evidence. Every physical electrode must match its owned numbered land after the reviewed cardinal package transform. The body datum uses four owned rectangle edges within manufacturer bounds. Extra lands remain in source accounting, with no invented physical-lead window, binding or exclusion. New job-local records are disabled and untaught. Review/apply, complete native export and project reopening preserve exact profiles, absent-land evidence, decisions and candidate history. Pin-1 marking, native frames, pad bindings, FOV, image teaching and Eagle open/save/reopen remain qualification work.
 
 External-terminal/thermal-pad preparation requires a matched numbered package drawing and source-owned geometry for every external terminal and underside pad. Explicitly selected three-sided or closed cardinal body frames must fit manufacturer bounds; clearance, disconnected lines and marking graphics cannot establish the datum. Numbered pin 1 is source-bound. New disabled local models contain body and external-terminal land references only. Underside thermal pads remain separately accounted geometry without a native optical window, binding or inspection exclusion. External joint visibility remains unknown; geometry never proves optical access. Saved projects, candidate history and complete native exports retain this distinction and exact remaining work. Hidden-joint coverage needs a separate inspection method or approved coverage decision before enabling; machine qualification and image teaching remain pending.
+
+Fresh symmetric two-terminal preparation can corroborate the manufacturer's body
+datum with exact owned body edges, bypassing an explicitly selected inconsistent
+template route without borrowing its offsets. Bounded, reviewed CAD import
+quantization does not move coordinates. Review/apply and reopening rebuild exact
+owned-pad/window binding intents and hypothesized window coverage extents; native
+binding and FOV assignment remain held. A read-only controlled Eagle trial
+comparison reports identity/position, binding/FOV and unrelated-record/asset
+changes without granting qualification. See [the trial guide](eagle-preparation-trial.md).

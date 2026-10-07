@@ -29,8 +29,15 @@ export function validatePackageProfiles(value: unknown): PackageProfile[] {
       ids.add(p.id);
       continue;
     }
-    if (!p || typeof p !== "object" || Array.isArray(p) || Object.keys(p).sort().join() !== keys || p.kind !== "symmetric-two-terminal-body-v1" || typeof p.id !== "string" || !p.id || p.id.length > 2048 || ids.has(p.id)) throw new Error("Invalid package evidence identity.");
+    if (!p || typeof p !== "object" || Array.isArray(p) || Object.keys(p).filter(k => !["bodyAnchor", "targetSourcePaths", "nativeCadQuantizationMm"].includes(k)).sort().join() !== keys || p.kind !== "symmetric-two-terminal-body-v1" || typeof p.id !== "string" || !p.id || p.id.length > 2048 || ids.has(p.id)) throw new Error("Invalid package evidence identity.");
     ids.add(p.id);
+    if ("nativeCadQuantizationMm" in p && (typeof p.nativeCadQuantizationMm !== "number" || !Number.isFinite(p.nativeCadQuantizationMm) || p.nativeCadQuantizationMm < 1e-9 || p.nativeCadQuantizationMm > .001 || !p.bodyAnchor)) throw new Error("Invalid bounded CAD quantization evidence.");
+    if ("targetSourcePaths" in p && (!Array.isArray(p.targetSourcePaths) || !p.targetSourcePaths.length || p.targetSourcePaths.length > 1000 || p.targetSourcePaths.some((n: unknown) => typeof n !== "string" || !n.startsWith("/") || n.length > 2048) || new Set(p.targetSourcePaths).size !== p.targetSourcePaths.length)) throw new Error("Invalid explicit constructor source scopes.");
+    if ("bodyAnchor" in p) {
+      const a = p.bodyAnchor;
+      if (!a || typeof a !== "object" || Array.isArray(a) || Object.keys(a).sort().join() !== "layerNumber,layoutSha256,linePaths,maxHeightMm,maxWidthMm,minHeightMm,minWidthMm,statement" || typeof a.layoutSha256 !== "string" || !/^[a-f0-9]{64}$/.test(a.layoutSha256) || typeof a.layerNumber !== "string" || !/^[1-9][0-9]{0,3}$/.test(a.layerNumber) || !Array.isArray(a.linePaths) || a.linePaths.length !== 4 || a.linePaths.some((n: unknown) => typeof n !== "string" || !n.startsWith("/") || n.length > 4096) || new Set(a.linePaths).size !== 4 || typeof a.statement !== "string" || !a.statement || a.statement.length > 4096) throw new Error("Invalid owned body datum evidence.");
+      for (const [lo, hi] of [["minWidthMm", "maxWidthMm"], ["minHeightMm", "maxHeightMm"]]) if (![a[lo], a[hi]].every(n => typeof n === "number" && Number.isFinite(n)) || a[lo] <= 0 || a[lo] > a[hi] || a[hi] > 1000) throw new Error("Invalid manufacturer body datum bounds.");
+    }
     for (const k of ["patternRef", "graphicsRef", "compRef", "attachedPatternName", "seedPartId", "seedMasterKey", "bodyWindowId", "terminalWindowId"]) if (typeof p[k] !== "string" || !p[k] || p[k].length > 2048 || p[k].includes("\0")) throw new Error("Invalid package evidence literal.");
     const d = p.drawing;
     if (!d || Object.keys(d).sort().join() !== "matchEvidence,page,sha256,url" || typeof d.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(d.sha256) || typeof d.url !== "string" || !d.url.startsWith("https://") || d.url.length > 2048 || !Number.isInteger(d.page) || d.page < 1 || d.page > 100 || typeof d.matchEvidence !== "string" || !d.matchEvidence || d.matchEvidence.length > 4096) throw new Error("Invalid manufacturer drawing evidence.");

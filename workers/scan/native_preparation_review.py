@@ -7,6 +7,7 @@ import zipfile
 from .disabled_draft_package import create_disabled_draft_package, package_digest
 from .native_preparation import automatic_plan, component_accounting, recipe_digest, apply_preparation
 from .native_pad_binding import diagnose_pad_bindings
+from .preparation_intents import preparation_intents
 from .repair_review import _csv, _software_identity, _remaining_rows
 from .snapshot_capture import SnapshotSelection, CaptureBlocked
 
@@ -38,6 +39,7 @@ def run(source, layout_path, review, control):
         if control['action'] == 'draft-review':
             return {'status': 'success', 'artifactType': 'scan.native-preparation-review', 'plan': plan, 'digest': digest,
                     'accounting': component_accounting(job, plan), 'padBindingWork': diagnose_pad_bindings(job, master, pcb),
+                    'preparationIntents': preparation_intents(job, master, pcb, plan['items']),
                     'qualificationOnly': True, 'machineExportAllowed': False}
         if set(control) - {'packageProfiles'} != {'action', 'layoutSha256', 'reviewDigest', 'accepted', 'reviewer', 'acknowledgement'} or control['reviewDigest'] != digest:
             raise CaptureBlocked('PREPARATION_STALE', 'The complete reviewed plan must match fresh source bytes and selected snapshots.')
@@ -77,7 +79,7 @@ def run(source, layout_path, review, control):
         result['software']['writer'] = plan['profile']
         for name in ('native_preparation.py', 'native_preparation_review.py', 'disabled_draft.py',
                      'disabled_draft_package.py', 'accel_ascii.py', 'snapshot_capture.py', 'job_intake.py',
-                     'native_pad_binding.py', 'native_model_geometry.py', 'native_window_subset.py', 'paired_terminal_constructor.py', 'diode_constructor.py', 'three_terminal_constructor.py', 'physical_terminal_constructor.py', 'thermal_terminal_constructor.py'):
+                     'native_pad_binding.py', 'preparation_intents.py', 'native_model_geometry.py', 'native_window_subset.py', 'paired_terminal_constructor.py', 'diode_constructor.py', 'three_terminal_constructor.py', 'physical_terminal_constructor.py', 'thermal_terminal_constructor.py'):
             result['software']['codeSha256'][name] = sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
         applied = [item for item in plan['items'] if item.get('digest') in recipe['accepted']]
         output = Path(source).parent / 'result.engineering.zip'
@@ -92,6 +94,7 @@ def run(source, layout_path, review, control):
                     'component_accounting.json': accounting, 'baseline_component_accounting.json': component_accounting(job, plan),
                     'native-inspection-work.json': candidate_review.get('nativeInspectionWork'),
                     'pad-binding-work.json': binding_work,
+                    'offline-binding-fov-intents.json': preparation_intents(changed['job'], changed['master'], pcb, applied, applied=True),
                     'candidate-native-accounting.json': candidate_review.get('nativeAccounting'),
                     'qualification.json': {'originalXmlByteRecovery': 'passed', 'archivePayloadAndMetadataPreservation': 'passed',
                     'newPlacementMasterWindowClosure': 'passed', 'newInspectionEnabled': False,

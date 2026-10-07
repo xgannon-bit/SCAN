@@ -11,6 +11,7 @@ from hashlib import sha256
 import base64
 import math
 import re
+from decimal import Decimal
 from xml.etree import ElementTree as ET
 
 from .accel_ascii import _parse, AccelLimits
@@ -55,7 +56,7 @@ def validate_profiles(profiles):
             continue
         keys = {'id', 'kind', 'patternRef', 'graphicsRef', 'compRef', 'attachedPatternName', 'nativePartNames', 'drawing',
                 'body', 'electrode', 'padPinMap', 'seedPartId', 'seedMasterKey', 'bodyWindowId', 'terminalWindowId'}
-        if not isinstance(p, dict) or set(p) != keys or p['kind'] != KIND:
+        if not isinstance(p, dict) or set(p) - {'bodyAnchor', 'targetSourcePaths', 'nativeCadQuantizationMm'} != keys or p['kind'] != KIND:
             _fail('PACKAGE_PROFILE', 'Unknown or incomplete package constructor profile.')
         for k in ('id', 'patternRef', 'graphicsRef', 'compRef', 'attachedPatternName', 'seedPartId', 'seedMasterKey', 'bodyWindowId', 'terminalWindowId'):
             if not isinstance(p[k], str) or not 0 < len(p[k]) <= 2048 or '\0' in p[k]:
@@ -63,6 +64,14 @@ def validate_profiles(profiles):
         if p['id'] in ids:
             _fail('PACKAGE_PROFILE', 'Package evidence profile IDs must be unique.')
         ids.add(p['id'])
+        if 'nativeCadQuantizationMm' in p:
+            quantum = p['nativeCadQuantizationMm']
+            if type(quantum) not in (int, float) or not math.isfinite(quantum) or not 1e-9 <= quantum <= .001 or 'bodyAnchor' not in p:
+                _fail('PACKAGE_NATIVE_FRAME', 'Explicit bounded CAD quantization requires an independent source-bound body datum.')
+        if 'targetSourcePaths' in p:
+            paths = p['targetSourcePaths']
+            if not isinstance(paths, list) or not 1 <= len(paths) <= 1000 or any(not isinstance(n, str) or not n.startswith('/') or len(n) > 2048 for n in paths) or len(set(paths)) != len(paths):
+                _fail('PACKAGE_SELECTION', 'Explicit constructor overrides require unique bounded literal source paths.')
         if not isinstance(p['nativePartNames'], list) or not 1 <= len(p['nativePartNames']) <= 20 or any(
                 not isinstance(n, str) or not 0 < len(n) <= 2048 for n in p['nativePartNames']):
             _fail('PACKAGE_PROFILE', 'Explicit native package identities are required.')
@@ -78,6 +87,14 @@ def validate_profiles(profiles):
                 _fail('PACKAGE_GEOMETRY', 'Drawing dimensions must be positive.')
         if p['electrode']['centerSeparationMm'] <= 0 or not .5 <= p['electrode']['minimumOverlapFraction'] <= 1:
             _fail('PACKAGE_GEOMETRY', 'A positive electrode separation and conservative overlap requirement are required.')
+        if 'bodyAnchor' in p:
+            a = p['bodyAnchor']
+            ak = {'layoutSha256', 'layerNumber', 'linePaths', 'minWidthMm', 'maxWidthMm', 'minHeightMm', 'maxHeightMm', 'statement'}
+            if not isinstance(a, dict) or set(a) != ak or not re.fullmatch('[a-f0-9]{64}', str(a['layoutSha256'])) or not isinstance(a['layerNumber'], str) or not re.fullmatch('[1-9][0-9]{0,3}', a['layerNumber']) or not isinstance(a['linePaths'], list) or len(a['linePaths']) != 4 or any(not isinstance(n, str) or not n.startswith('/') or len(n) > 4096 for n in a['linePaths']) or len(set(a['linePaths'])) != 4 or not isinstance(a['statement'], str) or not 1 <= len(a['statement']) <= 4096:
+                _fail('PACKAGE_BODY_DATUM', 'An exact source-bound four-edge body datum and match explanation are required.')
+            for lo, hi in [('minWidthMm', 'maxWidthMm'), ('minHeightMm', 'maxHeightMm')]:
+                if any(type(a[k]) not in (int, float) or not math.isfinite(a[k]) for k in (lo, hi)) or not 0 < a[lo] <= a[hi] <= 1000:
+                    _fail('PACKAGE_BODY_DATUM', 'Finite positive manufacturer body bounds in pattern axes are required.')
         mapping = p['padPinMap']
         if not isinstance(mapping, dict) or len(mapping) != 2 or len(set(mapping.values())) != 2 or any(
                 not isinstance(x, str) or not re.fullmatch('[1-9][0-9]{0,3}', x) for x in [*mapping, *mapping.values()]):
@@ -161,8 +178,62 @@ def source_geometry(target, profile, pcb):
     # Body dimensions are expressed across / along the terminal pair, transformed
     # into the pattern axes. Rotating a rectangular body cannot swap its anchor.
     bw, bh = (body['heightMm'], body['widthMm']) if abs(ux) > .5 else (body['widthMm'], body['heightMm'])
+    if 'bodyAnchor' in profile:
+        _check_body_anchor(target, profile, pcb, center, bw, bh)
     return {'center': center, 'bodyWidth': bw, 'bodyHeight': bh, 'terminals': terminal,
             'pinMapSourcePath': path, 'axis': [ux, uy]}
+
+
+def _check_body_anchor(target, profile, pcb, center, width, height):
+    """Corroborate a symmetric drawing datum with explicitly owned body edges.
+
+    Whole-graphic bounds, native template origins and nearest pads play no role.
+    Bounds are in pattern axes; instance rotation is applied only afterwards.
+    """
+    from .accel_ascii import _FACTORS, _quantity
+    a = profile['bodyAnchor']
+    if a['layoutSha256'] != sha256(pcb).hexdigest():
+        _fail('PACKAGE_EVIDENCE_STALE', 'Body datum must identify the exact source layout.')
+    ast, _ = _parse(pcb.decode('latin-1'), AccelLimits(), Counter())
+    nodes = {}
+    def visit(n):
+        nodes[n.path] = n
+        for child in n.children: visit(child)
+    visit(ast)
+    headers = ast.all('asciiHeader')
+    units = headers[0].all('fileUnits') if len(headers) == 1 else []
+    factor = _FACTORS.get(units[0].args[0].lower()) if len(units) == 1 and len(units[0].args) == 1 else None
+    owners = {p['patternSourcePath'] for p in target['sourceOwnedPads']}
+    definition = nodes.get(next(iter(owners))) if len(owners) == 1 else None
+    variants = [g for g in definition.all('patternGraphicsDef') if len(g.all('patternGraphicsNameDef')) == 1 and g.all('patternGraphicsNameDef')[0].args == [profile['graphicsRef']]] if definition else []
+    if factor is None or len(variants) != 1:
+        _fail('PACKAGE_BODY_DATUM', 'Explicit units and one owned graphics variant are required.')
+    owned = [l for layer in variants[0].all('layerContents') if len(layer.all('layerNumRef')) == 1 and layer.all('layerNumRef')[0].args == [a['layerNumber']] for l in layer.all('line')]
+    vertices, edges = Counter(), []
+    for path in a['linePaths']:
+        n = nodes.get(path)
+        if n is None or not any(n is line for line in owned) or len(n.all('pt')) != 2:
+            _fail('PACKAGE_BODY_DATUM', 'Each reviewed body edge must belong to the selected pattern and layer.')
+        points = []
+        for pt in n.all('pt'):
+            holds = []
+            if len(pt.args) != 2:
+                _fail('PACKAGE_BODY_DATUM', 'Body vertices require two literal coordinates.')
+            values = [_quantity(v, holds, pt.path, factor) for v in pt.args]
+            if holds or any(v is None for v in values):
+                _fail('PACKAGE_BODY_DATUM', 'Body vertex units are unsupported.')
+            points.append(tuple(float(v) for v in values))
+        x, y = points
+        if x == y or (x[0] != y[0] and x[1] != y[1]):
+            _fail('PACKAGE_BODY_DATUM', 'Body edges must be distinct and cardinal.')
+        vertices.update(points); edges.append(frozenset(points))
+    xs, ys = sorted({x for x,y in vertices}), sorted({y for x,y in vertices})
+    if len(vertices) != 4 or set(vertices.values()) != {2} or len(set(edges)) != 4 or len(xs) != 2 or len(ys) != 2:
+        _fail('PACKAGE_BODY_DATUM', 'Selected body edges must close one rectangle without marking fragments.')
+    if not a['minWidthMm']-1e-8 <= xs[1]-xs[0] <= a['maxWidthMm']+1e-8 or not a['minHeightMm']-1e-8 <= ys[1]-ys[0] <= a['maxHeightMm']+1e-8 or not a['minWidthMm'] <= width <= a['maxWidthMm'] or not a['minHeightMm'] <= height <= a['maxHeightMm']:
+        _fail('PACKAGE_BODY_DRAWING_MISMATCH', 'Owned body edges and proposed body must fit the independently matched manufacturer bounds.')
+    if any(abs(v-c) > 1e-6 for v,c in zip(((xs[0]+xs[1])/2, (ys[0]+ys[1])/2), center)):
+        _fail('PACKAGE_BODY_ANCHOR_MISMATCH', 'Owned body center disagrees with the symmetric electrode datum; no template-offset averaging is permitted.')
 
 
 def construct(j, m, layout, pcb, choice, profile, allocate):
@@ -171,6 +242,8 @@ def construct(j, m, layout, pcb, choice, profile, allocate):
     if len(matches) != 1:
         _fail('PACKAGE_SOURCE', 'One literal source placement is required.')
     target = matches[0]
+    if 'targetSourcePaths' in profile and target['sourcePath'] not in profile['targetSourcePaths']:
+        _fail('PACKAGE_SELECTION', 'This scope is outside the explicitly reviewed constructor override.')
     if (target['patternRef'], target['patternGraphicsNameRef'], target['component']['compRef']) != (profile['patternRef'], profile['graphicsRef'], profile['compRef']):
         _fail('PACKAGE_IDENTITY', 'Source package identities differ from the reviewed drawing profile.')
     module = choice['moduleId']
@@ -201,14 +274,26 @@ def construct(j, m, layout, pcb, choice, profile, allocate):
         _fail('PACKAGE_ORIENTATION', 'Only directly corresponding source/cardinal native clockwise angle literals are supported.')
     # Require multiple independent 2-D controls and a held-out correspondence.
     controls = []
+    quantum = Decimal(str(profile['nativeCadQuantizationMm'])) if 'nativeCadQuantizationMm' in profile else None
+    def quantized(c):
+        if quantum is None: return True
+        for axis in ('X', 'Y'):
+            _number(c, axis)
+            if Decimal(_text(c, axis)) % quantum != 0: return False
+        return True
+    if not quantized(cad):
+        _fail('PACKAGE_NATIVE_FRAME', 'Target CAD literals do not use the reviewed coordinate quantum.')
     for p in layout['placements']:
         rows = [c for c in j.findall('CadData/CpList/Cp') if _text(c, 'RefID') == p['refdes'] and _text(c, 'ModuleID') == module]
-        if len(rows) == 1 and not p['identityHolds'] and p['anchor'] and p['rotation']['degrees'] is not None:
+        if len(rows) == 1 and quantized(rows[0]) and not p['identityHolds'] and p['anchor'] and p['rotation']['degrees'] is not None:
             c = rows[0]
             controls.append((p['refdes'], p['anchor']['xMm'], p['anchor']['yMm'],
                              float(_number(c, 'X'))-p['anchor']['xMm'], float(_number(c, 'Y'))-p['anchor']['yMm']))
     tx, ty = float(_number(cad, 'X'))-target['anchor']['xMm'], float(_number(cad, 'Y'))-target['anchor']['yMm']
-    controls = [c for c in controls if c[0] != target['refdes'] and abs(c[3]-tx) <= 1e-5 and abs(c[4]-ty) <= 1e-5]
+    # A difference of two independently rounded imported CAD coordinates has
+    # at most one quantum of error. No CAD coordinate or source anchor is moved.
+    tolerance = float(quantum) + 1e-10 if quantum is not None else 1e-5
+    controls = [c for c in controls if c[0] != target['refdes'] and abs(c[3]-tx) <= tolerance and abs(c[4]-ty) <= tolerance]
     a = controls[0] if controls else None
     b = next((b for b in controls[1:] if abs(b[1]-a[1])+abs(b[2]-a[2]) > 1e-6), None) if a else None
     noncollinear = bool(b and any(abs((b[1]-a[1])*(c[2]-a[2])-(b[2]-a[2])*(c[1]-a[1])) > 1e-6 for c in controls))
@@ -309,6 +394,12 @@ def construct(j, m, layout, pcb, choice, profile, allocate):
         result['remaining'].append('native-polarity-position-and-teaching-frame-unverified')
         if any(r.get('terminalRole') == 'no-connection' for r in roles):
             result['remaining'].append('no-connection-is-a-physical-lead-review-solder-inspection-not-an-exclusion')
+    if 'bodyAnchor' in profile:
+        result['basis']['bodyAnchorEvidence'] = profile['bodyAnchor']
+    if quantum is not None:
+        result['basis']['nativeCadQuantization'] = {'quantumMm': float(quantum), 'targetLiteralsOnQuantum': True,
+            'maximumControlTranslationDifferenceMm': max(max(abs(c[3]-tx), abs(c[4]-ty)) for c in controls),
+            'cadOrSourceCoordinatesChanged': False, 'runtimeQualified': False}
     if profile['kind'] == 'numbered-physical-terminal-body-v1':
         result['dependencies']['unrepresentedSourceLands'] = geom['unrepresentedSourceLands']
         result['basis'].update(pin1Evidence=geom['pin1'], pin1DirectionPatternAxes=geom['pin1Direction'],

@@ -5,10 +5,10 @@ import path from 'node:path';
 import { authoredPreparation } from '../native-preparation-fixture.mjs';
 import { makeArchive, syntheticMembers, syntheticSelection } from '../synthetic-archive.mjs';
 
-for (const family of ['paired', 'diode', 'three', 'physical', 'thermal']) test(`${family} construction exports an actual disabled model and survives project reopening`, async ({ page }, info) => {
+for (const family of ['paired', 'anchored', 'diode', 'three', 'physical', 'thermal']) test(`${family} construction exports an actual disabled model and survives project reopening`, async ({ page }, info) => {
   const polarized = family === 'diode', three = family === 'three', physical = family === 'physical', thermal = family === 'thermal';
   const python = path.join(process.cwd(), '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
-  const result = spawnSync(python, ['-c', `import json\nfrom workers.scan.tests.${thermal ? 'test_thermal_terminal_constructor' : physical ? 'test_physical_terminal_constructor' : three ? 'test_three_terminal_constructor' : polarized ? 'test_diode_constructor' : 'test_paired_terminal_constructor'} import fixture\nj,m,b,p=${thermal || physical || three ? 'fixture(90,270)' : polarized ? 'fixture(90,90,True)' : 'fixture(270)'}\nprint(json.dumps(dict(job=j.decode(),master=m.decode(),pcb=b.decode(),profile=p)))`], { encoding: 'utf8' });
+  const result = spawnSync(python, ['-c', `import json\nfrom workers.scan.tests.${family === 'anchored' ? 'test_preparation_usability import anchored as fixture' : (thermal ? 'test_thermal_terminal_constructor' : physical ? 'test_physical_terminal_constructor' : three ? 'test_three_terminal_constructor' : polarized ? 'test_diode_constructor' : 'test_paired_terminal_constructor') + ' import fixture'}\nj,m,b,p=${thermal || physical || three ? 'fixture(90,270)' : polarized ? 'fixture(90,90,True)' : 'fixture(270)'}\nprint(json.dumps(dict(job=j.decode(),master=m.decode(),pcb=b.decode(),profile=p)))`], { encoding: 'utf8' });
   expect(result.status, result.stderr).toBe(0);
   const f = JSON.parse(result.stdout);
   await page.goto('/intake');
@@ -28,6 +28,8 @@ for (const family of ['paired', 'diode', 'three', 'physical', 'thermal']) test(`
   await region.getByLabel('Package geometry evidence profiles (JSON)', { exact: true }).setInputFiles({ name: 'authored-profiles.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify([f.profile])) });
   await region.getByRole('button', { name: 'Find supported native preparation', exact: true }).click();
   await expect(region).toContainText('1 additional proposals construct a manufacturer body');
+  await region.getByText('Offline pad binding and FOV preparation', { exact: true }).click();
+  await expect(region).toContainText('native artwork IDs, binding tuples and FOV assignments remain unwritten');
   await region.getByLabel('Preparation reviewer', { exact: true }).fill('Authored constructor reviewer');
   await region.getByText('N1 · disabled model proposal', { exact: true }).click();
   await expect(region).toContainText('New package construction.');
@@ -41,6 +43,9 @@ for (const family of ['paired', 'diode', 'three', 'physical', 'thermal']) test(`
   await downloaded.saveAs(bundlePath);
   const verified = spawnSync(python, ['-c', `import zipfile,json,sys,pathlib
 with zipfile.ZipFile(sys.argv[1]) as z:
+ with zipfile.ZipFile(__import__('io').BytesIO(z.read('engineering-QUALIFICATION-ONLY.zip'))) as engineering:
+  intents=json.loads(engineering.read('offline-binding-fov-intents.json'))
+  assert intents['recordsApplied'] and intents['counts']['newNativeBindings']==intents['counts']['newNativeFovAssignments']==0
  p=z.read('SCAN.scan-project.json');pathlib.Path(sys.argv[2]).write_bytes(p)
  saved=json.loads(p)['nativePreparation'];assert len(saved['packageProfiles'])==1 and saved['history'][0]['packageProfiles']==saved['packageProfiles']
  work=json.loads(z.read('component-by-component-Eagle-work.json'));assert work['counts']['preparedWithConstructedGeometry']==1
