@@ -11,13 +11,61 @@ import json
 from pathlib import Path
 import zipfile
 
-from .qualification_candidate import _patch_xml, _request
+from .qualification_candidate import _patch_xml, _request, _xml
 from .snapshot_capture import CaptureBlocked
 
 
 def _copy_file(incoming, outgoing):
     while chunk := incoming.read(1024 * 1024):
         outgoing.write(chunk)
+
+
+def scalar_trial_accounting(accounting, final_job, approved):
+    """Overlay only applied, uniquely verified scalar identities on final rows.
+
+    Existing record retention and teaching preservation are distinct from an
+    unchanged placement. This describes the receipt; it grants no qualification.
+    """
+    from copy import deepcopy
+    rows = deepcopy(accounting)
+    leaves, _, _ = _xml(final_job)
+    for proposal in approved:
+        path = proposal['path']; part_path, field = path.split(']/', 1)
+        part_path += ']'
+        identity = proposal['identity']
+        for key, expected in identity.items():
+            found = leaves.get(part_path + '/' + key, [])
+            if len(found) != 1 or not found[0]['plain'] or found[0]['literal'] != expected:
+                raise CaptureBlocked('SCALAR_ACCOUNTING_IDENTITY', 'The applied scalar identity does not match its actual candidate placement.')
+        value = leaves.get(path, [])
+        if len(value) != 1 or not value[0]['plain'] or value[0]['literal'] != proposal['after']:
+            raise CaptureBlocked('SCALAR_ACCOUNTING_VALUE', 'Applied scalar accounting requires the exact actual candidate after value.')
+        matches = [r for r in rows if r['reference'] == identity['RefID'] and r['module'] == identity['ParentId']
+                   and identity['ID'] in r['placementIds'] and identity['MasterKey'] in r.get('masterKeys', [])]
+        if len(matches) != 1:
+            raise CaptureBlocked('SCALAR_ACCOUNTING_SCOPE', 'The applied scalar must resolve to exactly one intended component scope.')
+        row = matches[0]
+        row.setdefault('stateBeforeScalarTrial', row['status'])
+        if row['status'] == 'existing-structure-preserved':
+            row['status'] = 'existing-scalar-trial-applied'
+        row.setdefault('appliedScalarTrials', []).append({
+            'proposalId': proposal['id'], 'path': path, 'field': field, 'identity': deepcopy(identity),
+            'before': proposal['before'], 'after': proposal['after'], 'qualificationOnly': True,
+            'inspectionRepairEstablished': False})
+        checks = row.setdefault('scalarTrialChecks', [])
+        checks.append(f"Verify placement ID {identity['ID']}, module {identity['ParentId']}, Master {identity['MasterKey']}: qualification-only {field} changed from {proposal['before']} to {proposal['after']}; confirm the exact selected main snapshot.")
+        if field == 'ENABLE':
+            checks.append('Verify only the selected placement is disabled; check the retained placement, useful teaching and intended inspection coverage before accepting the suppression trial.')
+        else:
+            checks.append('Check the intended body/origin geometry independently. Verify all dependent Master windows and owned pad bindings; the scalar change does not establish an inspection repair or complete binding.')
+            checks.append('Check placement ROI, stored center and native CAD separately against the exact change log; fields absent from that log were preserved. Do not move CAD to conceal a misplaced window.')
+        for check in ('Preserve existing teaching. Verify dependent window behavior and shared Master scope after any binding or teaching action.',
+                      'Record original-control and candidate open/save/reopen evidence; verify exact scalar/position retention after binding and teaching. Eagle behavior remains unverified.'):
+            if check not in checks: checks.append(check)
+        row['remaining'] = list(dict.fromkeys([*row.get('remaining', []), 'applied-scalar-trial-qualification-required',
+            'binding-and-dependent-window-review-required', 'scalar-and-position-retention-after-teaching-unverified']))
+        row['nextAction'] = 'Qualify the recorded scalar trial and its dependent geometry/bindings at Eagle; preserve existing teaching. See scalarTrialChecks for the exact changed placement and remaining steps.'
+    return rows
 
 
 def compose_preparation(source, layout_path, review, control):
@@ -119,7 +167,7 @@ def compose_preparation(source, layout_path, review, control):
         manifest['software']['codeSha256'] = {**prior_manifest['software']['codeSha256'], **manifest['software']['codeSha256']}
         plan = json.loads(prior.read('proposals.json'))
         applied = [item for item in plan['items'] if item.get('digest') in preparation['accepted']]
-        accounting = component_accounting(final_job, plan, preparation['accepted'])
+        accounting = scalar_trial_accounting(component_accounting(final_job, plan, preparation['accepted']), final_job, approved)
         docs = {'manifest.json': manifest, 'composed-qualification-receipt.json': receipt,
                 'applied_changes.json': {'preparations': json.loads(prior.read('applied_changes.json')), 'scalars': approved},
                 'decisions.json': {'preparation': json.loads(prior.read('decisions.json')), 'scalar': request['acceptances']},
@@ -132,7 +180,8 @@ def compose_preparation(source, layout_path, review, control):
                 'candidate-duplicate-review.json': fresh.get('nativeDuplicateReview')}
         for name, value in docs.items(): bundle.writestr(name, json.dumps(value, ensure_ascii=True, indent=2))
         bundle.writestr('component_coverage.csv', _csv(accounting))
-        bundle.writestr('remaining_work.csv', _csv([{'reference': item['reference'], 'module': item['module'], 'status': item['status'], 'remaining': item['remaining'], 'omittedWindows': item['omittedWindows']} for item in accounting] + _remaining_rows(fresh)))
+        bundle.writestr('remaining_work.csv', _csv([{'reference': item['reference'], 'module': item['module'], 'status': item['status'], 'remaining': item['remaining'], 'omittedWindows': item['omittedWindows'],
+            'appliedScalarTrials': item.get('appliedScalarTrials', []), 'scalarTrialChecks': item.get('scalarTrialChecks', [])} for item in accounting] + _remaining_rows(fresh)))
         bundle.writestr('START_HERE.txt', 'QUALIFICATION ONLY — COMPOSED PREPARATION AND SCALAR TRIAL\n'
             'CANDIDATE.zip contains the separately accepted disabled preparations AND the separately accepted scalar changes.\n'
             'Read composed-qualification-receipt.json for both exact original-bound reviewed sets and byte preservation.\n'

@@ -65,3 +65,32 @@ test('shared windows and ambiguous BOM evidence remain explicit and CSV formula 
   assert.equal(work.rows[0].windows[0].algorithmCount,2);
   assert.match(preparationWorkCsv(work), /"'=FICTION"/);
 });
+
+test('applied scalar receipt is carried to exactly its component and CSV without claiming teaching or full repair', () => {
+  const original = ['FABLE-A', 'FABLE-B'].map((reference, i) => ({ reference, module: '2', status: 'existing-structure-preserved',
+    placementIds: [String(10 + i)], masterKeys: ['15'], existingTeaching: 'preserved-unverified', nextAction: 'Preserve.' }));
+  const baseline = preparationWork(original, [], [], null, null);
+  const accounting = structuredClone(original);
+  accounting[0] = { ...accounting[0], status: 'existing-scalar-trial-applied', stateBeforeScalarTrial: 'existing-structure-preserved',
+    appliedScalarTrials: [{ proposalId: 'fictional-scalar', path: 'JobContainer/PartDataList/PartData[1]/Roi/cx', field: 'Roi/cx',
+      identity: { ID: '10', ParentId: '2', MasterKey: '15', RefID: 'FABLE-A' }, before: '12', after: '13.125', qualificationOnly: true, inspectionRepairEstablished: false }],
+    scalarTrialChecks: ['Verify the exact Roi/cx scalar and owned pad bindings with dependent windows.', 'Verify position retention after binding, teaching, save and reopen.'] };
+  const work = preparationWork(accounting, [], [], null, null);
+  assert.deepEqual(work.rows[1], baseline.rows[1]);
+  assert.equal(work.rows[0].nativePlacement, 'existing-scalar-trial-applied-qualification-required');
+  assert.equal(work.rows[0].alignment, 'scalar-geometry-trial-unverified');
+  assert.equal(work.rows[0].teaching, 'preserved-unverified');
+  assert.equal(work.rows[0].scalarTrialState, 'applied-qualification-only');
+  assert.equal(work.rows[0].appliedScalarTrials[0].after, '13.125');
+  assert.match(work.rows[0].atEagle.join(' '), /dependent windows/);
+  assert.match(work.rows[0].atEagle.join(' '), /retention after binding, teaching/);
+  assert.equal(work.counts.originalReferencesPreserved, 1);
+  assert.equal(work.counts.originalReferencesRetained, 2);
+  assert.equal(work.counts.existingTeachingPreservedReferences, 2);
+  assert.equal(work.counts.appliedScalarTrialReferences, 1);
+  assert.equal(work.inspectionRepairEstablished, false);
+  const csv = preparationWorkCsv(work);
+  assert.match(csv, /appliedScalarTrials/); assert.match(csv, /fictional-scalar/); assert.match(csv, /13\.125/);
+  assert.match(csv.split('\r\n')[1], /position retention after binding/);
+  assert.doesNotMatch(csv.split('\r\n')[2], /fictional-scalar|scalar-geometry-trial-unverified/);
+});

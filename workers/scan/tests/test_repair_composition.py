@@ -13,6 +13,8 @@ from workers.scan.native_preparation import automatic_plan
 from workers.scan.disabled_draft_package import package_digest
 from workers.scan.qualification_candidate import proposal_digest
 from workers.scan.snapshot_capture import SnapshotSelection
+from workers.scan.repair_composition import scalar_trial_accounting
+from workers.scan.snapshot_capture import CaptureBlocked
 from workers.scan.tests.test_native_preparation import fixtures
 
 
@@ -97,6 +99,17 @@ class RepairCompositionTests(unittest.TestCase):
                 for name in old.namelist():
                     if name not in (self.selection['jobMember'], self.selection['masterMember']): self.assertEqual(z.read(name), old.read(name))
             self.assertEqual(json.loads(bundle.read('native-inspection-work.json'))['counts']['nativeParts'], 3)
+            rows = json.loads(bundle.read('component_accounting.json'))
+            trial = next(r for r in rows if r['reference'] == 'T1')
+            self.assertEqual(trial['status'], 'existing-scalar-trial-applied')
+            self.assertEqual(trial['existingTeaching'], 'preserved-unverified')
+            self.assertEqual([r['proposalId'] for r in trial['appliedScalarTrials']], ['move'])
+            self.assertEqual(trial['appliedScalarTrials'][0]['after'], '13.125')
+            self.assertIn('position retention', ' '.join(trial['scalarTrialChecks']))
+            before_rows = json.loads(bundle.read('preparation-baseline/component_accounting.json'))
+            self.assertEqual([r for r in rows if r['reference'] != 'T1'], [r for r in before_rows if r['reference'] != 'T1'])
+            self.assertIn('appliedScalarTrials', bundle.read('component_coverage.csv').decode())
+            self.assertIn('position retention', bundle.read('remaining_work.csv').decode())
 
     def test_repeat_export_has_same_native_bytes_without_duplicate_records(self):
         first, a = self.export('first'); second, b = self.export('second')
@@ -126,3 +139,15 @@ class RepairCompositionTests(unittest.TestCase):
             for item in self.plan['items']:
                 for change in item['changes']:
                     self.assertIn(change['afterXml'].encode(), z.read(self.selection['jobMember'] if change['document'] == 'job' else self.selection['masterMember']))
+
+    def test_scalar_accounting_refuses_wrong_actual_after_identity_or_ambiguous_component(self):
+        rows = [{'reference': 'T1', 'module': '1', 'status': 'existing-structure-preserved', 'placementIds': ['7'], 'masterKeys': ['8']}]
+        patch = deepcopy(self.request['proposals'][0])
+        with self.assertRaises(CaptureBlocked): scalar_trial_accounting(rows, self.job, [patch])
+        actual = self.job.replace(b'<cx>12</cx>', b'<cx>13.125</cx>', 1)
+        changed = scalar_trial_accounting(rows, actual, [patch])
+        self.assertNotIn('appliedScalarTrials', rows[0])
+        self.assertEqual(changed[0]['appliedScalarTrials'][0]['identity']['ID'], '7')
+        with self.assertRaises(CaptureBlocked): scalar_trial_accounting(rows + deepcopy(rows), actual, [patch])
+        patch['identity']['MasterKey'] = 'wrong'
+        with self.assertRaises(CaptureBlocked): scalar_trial_accounting(rows, actual, [patch])

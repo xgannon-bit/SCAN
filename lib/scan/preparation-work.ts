@@ -8,6 +8,9 @@ export type PreparationAccounting = {
   sourcePath?: string | null; holdCode?: string | null; holdReason?: string | null;
   nextAction: string; remaining?: string[]; windowPreparation?: string | null;
   omittedWindows?: { windowId: string; reasons: string[]; relatedWindowIds: string[]; templateAlgorithmsNotTransferred?: number }[];
+  stateBeforeScalarTrial?: string;
+  appliedScalarTrials?: { proposalId: string; path: string; field: string; identity: Record<"ID" | "ParentId" | "MasterKey" | "RefID", string>; before: string; after: string; qualificationOnly: true; inspectionRepairEstablished: false }[];
+  scalarTrialChecks?: string[];
 };
 export type PreparationItem = {
   status: string; reference?: string; digest?: string;
@@ -24,6 +27,8 @@ export function preparationWork(accounting: PreparationAccounting[], items: Prep
   const one = (values: string[] | undefined) => values?.length === 1 ? values[0] : null;
   const queue = candidateQueue ?? archive?.preflight.nativeInspectionWork;
   const rows = accounting.map(component => {
+    const scalarTrials = component.appliedScalarTrials ?? [];
+    const geometryTrial = scalarTrials.some(t => t.field !== "ENABLE");
     const actualPrepared = ["prepared-disabled", "prepared-partial-disabled"].includes(component.status);
     const item = actualPrepared ? applied.get(`${component.module}\0${component.reference}`) : undefined;
     // Only freshly parsed candidate accounting establishes creation. Accepting
@@ -65,9 +70,12 @@ export function preparationWork(accounting: PreparationAccounting[], items: Prep
     if (prepared && thermalPads.length) atEagle.push(`Verify numbered pin-1 marking and external terminals separately from underside thermal pad(s) ${thermalPads.map(t=>t.pin).join(", ")}. Thermal geometry has no optical window or binding and cannot establish solder/void quality beneath the body. External terminal-land references do not prove visible joints: assess actual image access and intended defect coverage before teaching or enabling. Resolve hidden-joint coverage through a separate inspection method or explicit approved coverage decision; no inspection exclusion is granted here.`);
     if (partialWindows) atEagle.push(`Partial local-window preparation: resolve each omitted intended inspection before enabling: ${omittedWindows.map(w => `${w.windowId} (${w.reasons.join(", ")})`).join("; ")}. Create/teach any required missing window with a supported local parent; review body settings and implicit window-dependent settings. No omitted window is an approved inspection exclusion.`);
     if (existed) atEagle.push("Preserve existing teaching; review flagged bindings/origins/windows and shared Master scope. Reteach only where review or a geometry change requires it.");
+    if (scalarTrials.length) atEagle.push(...(component.scalarTrialChecks ?? []));
     atEagle.push("Complete Eagle open/save/reopen qualification and physical inspection before enabling intended parts; record machine-specific validation separately.");
     return { reference: component.reference, module: component.module, nativeCadId: component.nativeCadId ?? null,
-      state: component.status, category: group,
+      state: component.status, category: group, appliedScalarTrials: scalarTrials,
+      scalarTrialState: scalarTrials.length ? "applied-qualification-only" : "none-applied",
+      stateBeforeScalarTrial: component.stateBeforeScalarTrial ?? null,
       populationEvidence: population, rawBomPopulationEvidence: evidence?.populationEvidence ?? null,
       bomSourceSha256: bom?.sourceSha256 ?? null, bomSourceRow: evidence?.sourceRow ?? null,
       bomApplicability: applicability, workOrderPopulation: "unapproved", intentionallyExcluded: false,
@@ -77,8 +85,8 @@ export function preparationWork(accounting: PreparationAccounting[], items: Prep
       windowPreparation: prepared ? (partialWindows ? "partial-closed-window-subset" : component.windowPreparation ?? item?.dependencies?.windowPreparation ?? "complete-template-window-copy") : "not-prepared-by-this-candidate",
       sharedMasterScopes: scopes.map(s => ({ masterKey: s.masterKeyLiteral, placementCount: s.partIds.length, scopeId: s.id })),
       nativeCreation: prepared ? "prepared-offline" : existed ? "existing-preserved" : pending ? "proposal-awaiting-review" : "required-if-populated",
-      nativePlacement: prepared ? "prepared-offline-verify-at-Eagle" : existed ? "existing-preserved" : "required-if-populated",
-      alignment: prepared ? "prepared-native-CAD-correspondence-qualification-required" : existed ? "preserved-review-flagged-issues" : "not-prepared",
+      nativePlacement: scalarTrials.length ? "existing-scalar-trial-applied-qualification-required" : prepared ? "prepared-offline-verify-at-Eagle" : existed ? "existing-preserved" : "required-if-populated",
+      alignment: geometryTrial ? "scalar-geometry-trial-unverified" : prepared ? "prepared-native-CAD-correspondence-qualification-required" : existed ? "preserved-review-flagged-issues" : "not-prepared",
       teaching: prepared ? "new-image-algorithms-not-prepared" : existed ? "preserved-unverified" : "not-prepared",
       padBinding: { status: "unresolved", sourceOwnedPadCount: binding?.sourceOwnedPadCount ?? null,
         holdCodes: binding?.holdCodes ?? [], actualObservedPlacements: binding?.placements ?? [],
@@ -97,7 +105,10 @@ export function preparationWork(accounting: PreparationAccounting[], items: Prep
   return { artifactType: "scan.component-preparation-work", schemaVersion: "1", sourceContext: archive?.capture.packageSha256 ?? null,
     nativeWorkSourceContext: candidateQueue?.sourceContext ?? queue?.sourceContext ?? null,
     rows, heldGroups: [...held.values()], counts: { cadReferences: rows.length,
-      originalReferencesPreserved: rows.filter(r => r.nativeCreation === "existing-preserved").length,
+      originalReferencesPreserved: rows.filter(r => r.nativeCreation === "existing-preserved" && !r.appliedScalarTrials.length).length,
+      originalReferencesRetained: rows.filter(r => r.nativeCreation === "existing-preserved").length,
+      existingTeachingPreservedReferences: rows.filter(r => r.teaching === "preserved-unverified").length,
+      appliedScalarTrialReferences: rows.filter(r => r.appliedScalarTrials.length).length,
       preparedReferences: rows.filter(r => r.nativeCreation === "prepared-offline").length,
       preparedWithCompleteTemplateWindowCopy: rows.filter(r => r.nativeCreation === "prepared-offline" && r.windowPreparation === "complete-template-window-copy").length,
       preparedWithPartialWindows: rows.filter(r => r.nativeCreation === "prepared-offline" && r.windowPreparation === "partial-closed-window-subset").length,
@@ -115,7 +126,7 @@ export function preparationWork(accounting: PreparationAccounting[], items: Prep
 }
 
 export function preparationWorkCsv(work: ReturnType<typeof preparationWork>) {
-  const columns = ["reference", "module", "category", "state", "populationEvidence", "workOrderPopulation", "nativeCreation", "nativePlacement", "alignment", "teaching", "placementIds", "masterKeys", "windowPreparation", "windows", "omittedWindows", "unrepresentedSourceLands", "thermalPads", "padBinding", "holdCode", "holdReason", "atEagle"] as const;
+  const columns = ["reference", "module", "category", "state", "scalarTrialState", "appliedScalarTrials", "populationEvidence", "workOrderPopulation", "nativeCreation", "nativePlacement", "alignment", "teaching", "placementIds", "masterKeys", "windowPreparation", "windows", "omittedWindows", "unrepresentedSourceLands", "thermalPads", "padBinding", "holdCode", "holdReason", "atEagle"] as const;
   const cell = (value: unknown) => {
     const text = typeof value === "string" ? value : JSON.stringify(value ?? "");
     return `"${/^[=+@-]/.test(text) ? "'" : ""}${text.replaceAll('"', '""')}"`;

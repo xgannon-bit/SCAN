@@ -66,6 +66,13 @@ with zipfile.ZipFile(sys.argv[1]) as z:
  assert [x['decision'] for x in d['repair']['request']['acceptances']]==['accepted','rejected']
  assert 'baseline-offline-review.json' in z.namelist()
  work=json.loads(z.read('component-by-component-Eagle-work.json'));assert len(work['rows'])==3 and work['counts']['preparedReferences']==1
+ changed=next(r for r in work['rows'] if r['reference']=='T1')
+ assert changed['state']=='existing-scalar-trial-applied' and changed['nativePlacement']=='existing-scalar-trial-applied-qualification-required'
+ assert changed['alignment']=='scalar-geometry-trial-unverified' and changed['teaching']=='preserved-unverified'
+ assert len(changed['appliedScalarTrials'])==1 and changed['appliedScalarTrials'][0]['field']=='Roi/cx' and changed['appliedScalarTrials'][0]['after']=='13.125'
+ assert 'position retention' in ' '.join(changed['atEagle']) and 'dependent Master windows' in ' '.join(changed['atEagle'])
+ assert '13.125' in z.read('component-by-component-Eagle-work.csv').decode()
+ assert 'existing-placement scalar trials are included' in z.read('OPEN_FIRST.txt').decode()
  with zipfile.ZipFile(io.BytesIO(z.read('engineering-QUALIFICATION-ONLY.zip'))) as e:
   r=json.loads(e.read('composed-qualification-receipt.json'));assert len(r['appliedScalarChanges'])==1 and r['scalarRollbackRecoversPreparedXml']
   with zipfile.ZipFile(io.BytesIO(e.read('CANDIDATE.zip'))) as c:
