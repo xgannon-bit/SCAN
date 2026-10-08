@@ -9,6 +9,8 @@ import { evaluationBundle } from "@/lib/scan/evaluation-bundle";
 import { buildSourceCrosswalk } from "@/lib/scan/source-crosswalk";
 import { preparationWork, preparationWorkCsv, type PreparationAccounting, type PreparationBindingWork } from "@/lib/scan/preparation-work";
 import { readCandidateWork } from "@/lib/scan/engineering-candidate-work";
+import { buildOfflineReviewEvidence } from "@/lib/scan/offline-review-evidence";
+import { compositionDecisionContext } from "@/lib/scan/composition-context";
 
 type Item = { status: string; reference?: string; digest?: string; reason?: string; code?: string;
   selection: { targetSourcePath: string; moduleId: string; templatePartId: string; templateMasterKey: string };
@@ -27,6 +29,8 @@ export function NativePreparationReview() {
   const controller = useRef<AbortController | null>(null);
   const scope = `${session.sourceContext}:${archiveReview?.capture.packageSha256}:${layout.result?.sourceSha256}:${JSON.stringify(saved.packageProfiles ?? [])}`;
   const currentScope = useRef(scope); currentScope.current = scope;
+  const exportScope = `${scope}:${compositionDecisionContext(saved, session.repair.request)}`;
+  const currentExportScope = useRef(exportScope); currentExportScope.current = exportScope;
   useEffect(() => { controller.current?.abort(); setBusy(false); setReview(null); setAck(false); return () => controller.current?.abort(); }, [scope]);
   const ready = review?.plan.items.filter(item => item.status === "ready-for-review") ?? [];
   const constructed = ready.filter(item => item.dependencies?.windowPreparation === "constructed-body-terminal-geometry");
@@ -39,7 +43,15 @@ export function NativePreparationReview() {
     if (!archiveFile || !archiveReview || !layout.file || !layout.result || !selection) throw new Error("Select and preflight the main job/Master and read the source layout first.");
     const form = new FormData(); form.set("file", archiveFile); form.set("layout", layout.file); form.set("action", action);
     form.set("expectedArchiveSha256", archiveReview.preflight.source.sha256); form.set("expectedPackageSha256", archiveReview.capture.packageSha256);
-    form.set("selection", JSON.stringify(selection)); form.set("draft", JSON.stringify({ layoutSha256: layout.result.sourceSha256, ...(saved.packageProfiles?.length ? { packageProfiles: saved.packageProfiles } : {}), ...extra }));
+    form.set("selection", JSON.stringify(selection));
+    const preparation: Record<string, unknown> = { layoutSha256: layout.result.sourceSha256, ...(saved.packageProfiles?.length ? { packageProfiles: saved.packageProfiles } : {}), ...extra };
+    const repair = session.repair.request;
+    if (action === "draft-export" && repair?.acceptances.some(a => a.decision === "accepted")) {
+      if (repair.source.archiveSha256 !== archiveReview.preflight.source.sha256 || repair.source.jobSha256 !== archiveReview.preflight.selection.job.sha256 || repair.source.jobMember !== selection.jobMember || (session.repair.sourceContext && session.repair.sourceContext !== session.sourceContext)) throw new Error("Accepted scalar review is stale. Recheck it before composing this candidate; accepted changes will not be silently omitted.");
+      const { acknowledgement: _acknowledgement, ...reviewedPreparation } = preparation;
+      form.set("action", "repair-export");
+      form.set("repair", JSON.stringify({ request: repair, preparation: reviewedPreparation, acknowledgement: "QUALIFICATION ONLY" }));
+    } else form.set("draft", JSON.stringify(preparation));
     return fetch("/api/archive", { method: "POST", body: form, signal: abort.signal });
   }
   async function analyze() {
@@ -62,7 +74,7 @@ export function NativePreparationReview() {
   }
   async function generate() {
     if (!fresh || !accepted.length || !ack || !saved.reviewer.trim() || saved.history.length >= 50) return;
-    const start = scope, abort = new AbortController(); controller.current = abort; setBusy(true); setMessage("");
+    const start = exportScope, abort = new AbortController(); controller.current = abort; setBusy(true); setMessage("");
     try {
       const response = await call("draft-export", { reviewDigest: review!.digest, accepted, reviewer: saved.reviewer.trim(), acknowledgement: "QUALIFICATION ONLY" }, abort);
       if (!response.ok || !response.headers.get("content-type")?.includes("octet-stream")) { const value = await response.json(); throw new Error(value.reason ?? value.message ?? "Preparation export held."); }
@@ -70,26 +82,39 @@ export function NativePreparationReview() {
       const actual = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await blob.arrayBuffer())), b => b.toString(16).padStart(2, "0")).join("");
       if (actual !== packageSha256 || !/^[a-f0-9]{64}$/.test(candidateSha256) || response.headers.get("X-SCAN-Source-SHA256") !== archiveReview!.preflight.source.sha256) throw new Error("Downloaded candidate identity could not be verified.");
       const actualWork = await readCandidateWork(blob, candidateSha256, archiveReview!.preflight.source.sha256, review!.plan.items, accepted);
-      if (abort.signal.aborted || currentScope.current !== start) return;
+      if (abort.signal.aborted) return;
+      if (currentExportScope.current !== start) throw new Error("Sources or exact reviewed decisions changed during export; no download or new history was recorded. Review and retry.");
       const id = crypto.randomUUID(); const history = { id, recordedAt: new Date().toISOString(), packageSha256, candidateSha256, review: structuredClone(saved.review!), reviewer: saved.reviewer.trim(), accepted, ...(saved.packageProfiles?.length ? { packageProfiles: structuredClone(saved.packageProfiles) } : {}) };
       const next = { ...saved, history: [...saved.history, history] };
-      const project = await session.buildProjectBlob(session.repair, next);
+      const scalarRequest = session.repair.request;
+      const combined = !!scalarRequest?.acceptances.some(a => a.decision === "accepted");
+      const nextRepair = combined ? { ...session.repair, history: [...session.repair.history, { id, recordedAt: history.recordedAt,
+        sourceSha256: archiveReview!.preflight.source.sha256, packageSha256, candidateSha256, request: structuredClone(scalarRequest!),
+        composition: { review: history.review, reviewer: history.reviewer, accepted, ...(history.packageProfiles ? { packageProfiles: history.packageProfiles } : {}) } }] } : session.repair;
+      const project = await session.buildProjectBlob(nextRepair, next);
       const crosswalk = buildSourceCrosswalk(session.bom.result, session.result, archiveReview, session.comparisons.entries.map(item => ({ name: item.file.name, result: item.result })), layout.result);
       const candidateWork = { ...preparationWork(actualWork.accounting, review!.plan.items, accepted, session.bom.result, archiveReview, actualWork.bindingWork, actualWork.queue), candidateSha256, packageSha256 };
       const bundle = await evaluationBundle([{ name: "engineering-QUALIFICATION-ONLY.zip", blob }, { name: "SCAN.scan-project.json", blob: project },
+        { name: "baseline-offline-review.json", blob: new Blob([JSON.stringify(await buildOfflineReviewEvidence(session), null, 2)]) },
         { name: "baseline-source-reconciliation.json", blob: new Blob([JSON.stringify(crosswalk, null, 2)]) },
         { name: "component-by-component-Eagle-work.json", blob: new Blob([JSON.stringify(candidateWork, null, 2)]) },
         { name: "component-by-component-Eagle-work.csv", blob: new Blob([preparationWorkCsv(candidateWork)]) },
         { name: "OPEN_FIRST.txt", blob: new Blob(["QUALIFICATION ONLY. New placements, local Masters and windows are disabled preparation, with empty bindings/FOV lists and algorithms. Open SCAN.scan-project.json to retain sources, exact decisions and candidate history; recompute preparation review before another export. The component-by-component Eagle work files distinguish engineering DNP, hole-bearing parts and populated SMT intent, identify creation/placement already prepared, exact native identities/windows and remaining teaching. Work-order population remains unapproved. Candidate component accounting and native inspection work are inside engineering-QUALIFICATION-ONLY.zip. Baseline reconciliation remains the original source state. Read START_HERE.txt there. Temp/backup contain original state. Eagle compatibility, binding, inspection and release remain unverified."]) }]);
-      if (abort.signal.aborted || currentScope.current !== start) return;
+      if (abort.signal.aborted) return;
+      if (currentExportScope.current !== start) throw new Error("Sources or exact reviewed decisions changed during export; no download or new history was recorded. Review and retry.");
       setNativePreparation(next);
+      if (combined) session.setRepair(nextRepair);
       const url = URL.createObjectURL(bundle), a = document.createElement("a"); a.href = url; a.download = `SCAN-PREPARED-PARTS-QUALIFICATION-${id.slice(0, 8)}.zip`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 2000);
-      setAck(false); setMessage(`${accepted.length} parts prepared as disabled placements, local Masters and linked windows in a separate complete native copy. ${candidateWork.counts.preparedWithPartialWindows} have explicitly partial windows and unfinished window work. Package hash verified; download requested with exact change log, full component accounting, remaining Athena work and reopenable project. Eagle and inspection behavior remain unverified.`);
+      setAck(false); setMessage(`${accepted.length} parts prepared as disabled placements, local Masters and linked windows in a separate complete native copy.${combined ? ` ${scalarRequest!.acceptances.filter(a => a.decision === "accepted").length} separately accepted scalar trials included in the same candidate.` : ""} ${candidateWork.counts.preparedWithPartialWindows} have explicitly partial windows and unfinished window work. Package hash verified; download requested with exact change log, full component accounting, remaining Athena work and reopenable project. Eagle and inspection behavior remain unverified.`);
     } catch (error) { if (!abort.signal.aborted) setMessage(error instanceof Error ? error.message : "Preparation export failed."); }
     finally { if (controller.current === abort) { controller.current = null; setBusy(false); } }
   }
   return <section className="scan-panel scan-panel-body" id="native-preparation" aria-label="Native part preparation">
     <h2>Prepare missing native parts</h2>
+    <details><summary>Starter-job requirements and current limits</summary>
+      <p>A scanned starter is the intended starting point. Today, template preparation still needs a compatible placement and model in the selected job. Package constructors derive new geometry but require an existing placement, local Master and suitable body/terminal windows as a native field-format seed. CAD-only starters without these records cannot yet create native models.</p>
+      <p>This selected baseline contains {archiveReview?.preflight.nativeRecords.job?.records.filter(r => r.kind === "part-record").length ?? 0} read placement records. Read records alone do not establish suitable seeds. Each proposed part below identifies its exact seed and geometry evidence; unsupported routes stay held. A synthetic starter test establishes software behavior only. Compatibility with a genuine scan/fiducial/color-only Eagle starter remains untested.</p>
+    </details>
     <p>Prepare a compatible model from this job, or construct a supported body and terminal reference model from reviewed package evidence and exact source-owned pads. The constructor uses a native record only as a field-format seed. Translation preserves template origin offsets; the bounded cardinal-angle trial requires an exact CAD-centered template and consistent source/native angle evidence. Every new placement and window stays disabled. Pad/FOV bindings, local-frame qualification and image teaching remain Athena work.</p>
     <details><summary>Package construction evidence</summary><label className="scan-field">Package geometry evidence profiles (JSON)<input type="file" accept=".json" disabled={busy} onChange={async event => {
       const file = event.target.files?.[0]; if (!file) return;

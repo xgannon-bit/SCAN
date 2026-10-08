@@ -33,7 +33,8 @@ export async function POST(request: Request) {
     const form = await new Response(Buffer.concat(chunks), { headers: { "content-type": request.headers.get("content-type")! } }).formData();
     const repairAction = String(form.get("action")).startsWith("repair-");
     const draftAction = String(form.get("action")).startsWith("draft-");
-    const fields = ["file", "action", "expectedArchiveSha256", "selection", "expectedPackageSha256", ...(repairAction ? ["repair"] : []), ...(draftAction ? ["draft", "layout"] : [])];
+    const composedRepair = form.get("action") === "repair-export" && form.has("layout");
+    const fields = ["file", "action", "expectedArchiveSha256", "selection", "expectedPackageSha256", ...(repairAction ? ["repair"] : []), ...(draftAction ? ["draft", "layout"] : []), ...(composedRepair ? ["layout"] : [])];
     if ([...form.keys()].length !== fields.length || fields.some(key => form.getAll(key).length !== 1)) return reply("Archive fields are missing, duplicated or unknown.");
     const file = form.get("file");
     if (!(file instanceof File) || !file.size || file.size > 100_000_000 || !file.name.toLowerCase().endsWith(".zip")) return reply("Select a nonempty ZIP no larger than 100 MB.");
@@ -59,6 +60,11 @@ export async function POST(request: Request) {
       const raw = form.get("draft"), layout = form.get("layout");
       if (typeof raw !== "string" || raw.length > 1_000_000 || !(layout instanceof File) || !layout.size || layout.size > 8_000_000 || !layout.name.toLowerCase().endsWith(".pcb")) return reply("Select a source layout no larger than 8 MB and a bounded preparation review.");
       try { control.draft = JSON.parse(raw); } catch { return reply("Invalid preparation request."); }
+      layoutBytes = Buffer.from(await layout.arrayBuffer());
+    }
+    if (composedRepair) {
+      const layout = form.get("layout");
+      if (!(layout instanceof File) || !layout.size || layout.size > 8_000_000 || !layout.name.toLowerCase().endsWith(".pcb") || !(control.repair as Record<string, unknown>)?.preparation) return reply("Composed export requires the exact source layout and reviewed preparation set.");
       layoutBytes = Buffer.from(await layout.arrayBuffer());
     }
     const bytes = Buffer.from(await file.arrayBuffer());

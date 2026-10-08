@@ -5,6 +5,7 @@ import { encodeReview } from '../lib/scan/review-session.ts';
 import { archiveWorker } from '../lib/scan/archive-worker.ts';
 import { makeArchive, syntheticSelection } from './synthetic-archive.mjs';
 import { retainSessionNote } from '../components/scan/ScanSession.tsx';
+import { emptySourceRegistration } from '../lib/scan/source-registration.ts';
 
 const config = { startRow: 1, columns: { refdes: 1, x: 2, y: 3 }, module: 'FICTIONAL', side: 'Top', units: 'mm', rotationDirection: 'ccw', decimalSeparator: '.', pairSeparator: ',' };
 const notes = { session: 'Authored project annotation, not approval.', 'row:1': 'Retain the selected row.' };
@@ -19,6 +20,19 @@ const returned = { file: new File([makeArchive({ 'Fictional/Board/Board.xml': '<
 returned.draft = draft(returned.selection);
 const gerber = { file: new File(['%MOMM*%\n%FSLAX24Y24*%\nM02*'], 'authored.gbr'), settings: { config: { formatOverride: null, assumeLinear: false }, points: Array.from({ length: 4 }, (_, i) => ({ id: String(i), role: i === 3 ? 'check' : 'fit', cad: ['', ''], gerber: ['', ''], evidence: '' })), scope: { module: 'FICTIONAL', side: 'Top', boardInstance: 'one' }, tolerance: '.1', basis: '', checked: false } };
 const input = { placement, gerber, original, returned, notes, machineVersion: 'Fictional version; no compatibility claim' };
+
+test('source registration stores reviewed inputs and decisions, never derived alignment authority', async () => {
+  const sourceRegistration = { ...emptySourceRegistration(), sourceId: 'primary', targetId: 'layout',
+    sourceRevision: 'invented-A', targetRevision: 'invented-A',
+    decision: { digest: 'a'.repeat(64), choice: 'accepted', reviewer: 'Synthetic reviewer', reason: 'Offline source-coordinate experiment only.' } };
+  const saved = await encodeProject({ ...input, sourceRegistration });
+  const reopened = await decodeProject(asFile(saved));
+  assert.deepEqual(reopened.record.sourceRegistration, sourceRegistration);
+  assert.equal(reopened.record.machineExportAllowed, false);
+  const forged = JSON.parse(await saved.text());
+  forged.sourceRegistration.transform = { scale: 1, machineQualified: true };
+  await assert.rejects(decodeProject(asFile(forged)), /registration|structure|fields/i);
+});
 
 test('supplementary evidence and offline work survive reopen without granting machine authority', async () => {
   const repair = { request: null, history: [], work: [{ key: 'authored-component', sourceSha256: 'a'.repeat(64), snapshotId: 'authored-snapshot', status: 'machine-work', note: 'Authored unresolved task' }] };

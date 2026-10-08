@@ -9,6 +9,11 @@ import { Button } from "@/components/ui/button";
 import { useScanSession } from "./ScanSession";
 import { downloadJson } from "@/lib/scan/review-session";
 import type { RepairRequest } from "@/lib/scan/repair-session";
+import { RepairImpact } from "./RepairImpact";
+import { readComposedCandidateWork } from "@/lib/scan/engineering-candidate-work";
+import { preparationWork, preparationWorkCsv } from "@/lib/scan/preparation-work";
+import { buildOfflineReviewEvidence } from "@/lib/scan/offline-review-evidence";
+import { compositionDecisionContext, preparationNeedsRecompute } from "@/lib/scan/composition-context";
 
 export function RepairReview() {
   const session = useScanSession();
@@ -29,7 +34,7 @@ export function RepairReview() {
   const [filter, setFilter] = useState("");
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const currentScope = `${preflight?.source.sha256}:${preflight?.selection.job.sha256}:${session.sourceContext}`;
+  const currentScope = `${preflight?.source.sha256}:${preflight?.selection.job.sha256}:${session.sourceContext}:${compositionDecisionContext(session.nativePreparation, repair.request)}`;
   const scopeRef = useRef(currentScope); scopeRef.current = currentScope;
   const part = records.find(record => record.sourcePath === selected);
   const scalar = (key: string) => part?.rawFields[key]?.length === 1 ? part.rawFields[key][0] : "";
@@ -39,13 +44,24 @@ export function RepairReview() {
   const fresh = !!req && req.source.archiveSha256 === preflight?.source.sha256 && req.source.jobSha256 === preflight?.selection.job.sha256 && req.source.jobMember === selection?.jobMember && selection?.jobRole === "main" && !!session.sourceContext && (!repair.sourceContext || repair.sourceContext === session.sourceContext);
   const accepted = fresh ? req!.acceptances.filter(value => value.decision === "accepted").length : 0;
   const readOnly = !preflight || selection?.jobRole !== "main";
+  const preparation = session.nativePreparation;
+  const preparationAccepted = preparation.review?.decisions.filter(item => item.decision === "accepted").map(item => item.digest) ?? [];
+  const preparationFresh = preparation.review?.archiveSha256 === preflight?.source.sha256 && preparation.review?.layoutSha256 === session.layout.result?.sourceSha256;
 
   async function call(action: "repair-review" | "repair-export", request: RepairRequest) {
     if (!archiveFile || !archiveReview || !selection) throw new Error("Select and preflight a complete native archive first.");
     const form = new FormData();
     form.set("file", archiveFile); form.set("action", action); form.set("expectedArchiveSha256", archiveReview.preflight.source.sha256);
     form.set("expectedPackageSha256", archiveReview.capture.packageSha256); form.set("selection", JSON.stringify(selection));
-    form.set("repair", JSON.stringify({ request, ...(action === "repair-export" ? { acknowledgement: "QUALIFICATION ONLY" } : {}) }));
+    if (action === "repair-export" && preparationNeedsRecompute(preparation, preflight?.source.sha256)) throw new Error("This source has earlier accepted preparation but its current review was cleared. Recompute preparation before export; prior parts will not be silently omitted.");
+    if (action === "repair-export" && preparationAccepted.length) {
+      if (!preparationFresh || !session.layout.file || !session.layout.result || !preparation.reviewer.trim()) throw new Error("Accepted native preparation is stale or lacks its source layout. Recompute it before composing this candidate; accepted parts will not be silently omitted.");
+      form.set("layout", session.layout.file);
+    }
+    form.set("repair", JSON.stringify({ request, ...(action === "repair-export" ? { acknowledgement: "QUALIFICATION ONLY", ...(preparationAccepted.length ? { preparation: {
+      layoutSha256: session.layout.result!.sourceSha256, reviewDigest: preparation.review!.digest,
+      accepted: preparationAccepted, reviewer: preparation.reviewer,
+      ...(preparation.packageProfiles?.length ? { packageProfiles: preparation.packageProfiles } : {}) } } : {}) } : {}) }));
     return fetch("/api/archive", { method: "POST", body: form });
   }
   async function review(draft: RepairRequest) {
@@ -90,19 +106,28 @@ export function RepairReview() {
       const candidateSha256 = response.headers.get("X-SCAN-Candidate-SHA256")!;
       const computed = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await blob.arrayBuffer())), byte => byte.toString(16).padStart(2, "0")).join("");
       if (computed !== packageSha256) throw new Error("Downloaded package hash differs; no candidate recorded.");
-      if (!mounted.current || scopeRef.current !== scope) return;
+      if (!mounted.current) return;
+      if (scopeRef.current !== scope) throw new Error("Sources or exact reviewed decisions changed during export; no download or new history was recorded. Review and retry.");
       const id = crypto.randomUUID();
-      const revision = { id, recordedAt: new Date().toISOString(), sourceSha256: request.source.archiveSha256, packageSha256, candidateSha256, request };
+      const revision = { id, recordedAt: new Date().toISOString(), sourceSha256: request.source.archiveSha256, packageSha256, candidateSha256, request,
+        ...(preparationAccepted.length ? { composition: { review: structuredClone(preparation.review!), reviewer: preparation.reviewer, accepted: preparationAccepted, ...(preparation.packageProfiles?.length ? { packageProfiles: structuredClone(preparation.packageProfiles) } : {}) } } : {}) };
       const updatedRepair = { ...repair, history: [...repair.history, revision] };
       const project = await session.buildProjectBlob(updatedRepair);
       const crosswalk = buildSourceCrosswalk(session.bom.result, session.result, archiveReview, session.comparisons.entries.map(item => ({ name: item.file.name, result: item.result })), session.layout.result);
       const json = (value: unknown) => new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
-      const bundle = await evaluationBundle([{ name: "engineering-QUALIFICATION-ONLY.zip", blob }, { name: "SCAN.scan-project.json", blob: project }, { name: "source-reconciliation.json", blob: json({ bom: session.bom.result, crosswalk }) }, { name: "source-geometry-evidence.json", blob: json({ layout: session.layout.result, gerber: session.gerber.result, alignment: session.gerber.alignment }) }, { name: "OPEN_FIRST.txt", blob: new Blob(["QUALIFICATION ONLY. Open SCAN.scan-project.json in SCAN to resume sources, decisions and history. Extract engineering-QUALIFICATION-ONLY.zip separately and read START_HERE.txt before any Eagle evaluation. Source reconciliation and geometry evidence describe the original baseline, not a reanalysis of the edited candidate. Temp/backup snapshots preserve the original state: do not substitute them during testing. No machine validation or production release is granted."]) }]);
-      if (!mounted.current || scopeRef.current !== scope) return;
+      const reports: { name: string; blob: Blob }[] = [{ name: "baseline-offline-review.json", blob: json(await buildOfflineReviewEvidence(session)) }];
+      if (preparationAccepted.length) {
+        const actual = await readComposedCandidateWork(blob, candidateSha256, request.source.archiveSha256, preparationAccepted);
+        const work = { ...preparationWork(actual.accounting, actual.items, preparationAccepted, session.bom.result, archiveReview, actual.bindingWork, actual.queue), candidateSha256, packageSha256 };
+        reports.push({ name: "component-by-component-Eagle-work.json", blob: json(work) }, { name: "component-by-component-Eagle-work.csv", blob: new Blob([preparationWorkCsv(work)]) });
+      }
+      const bundle = await evaluationBundle([{ name: "engineering-QUALIFICATION-ONLY.zip", blob }, { name: "SCAN.scan-project.json", blob: project }, ...reports, { name: "source-reconciliation.json", blob: json({ bom: session.bom.result, crosswalk }) }, { name: "source-geometry-evidence.json", blob: json({ layout: session.layout.result, gerber: session.gerber.result, alignment: session.gerber.alignment }) }, { name: "OPEN_FIRST.txt", blob: new Blob(["QUALIFICATION ONLY. Open SCAN.scan-project.json in SCAN to resume sources, decisions and history. Extract engineering-QUALIFICATION-ONLY.zip separately and read START_HERE.txt before any Eagle evaluation. Source reconciliation and geometry evidence describe the original baseline; candidate-specific native and component work are recomputed inside the engineering package. Separately accepted disabled preparations and scalar trials are composed in one candidate. Temp/backup snapshots preserve the original state: do not substitute them during testing. No machine validation or production release is granted."]) }]);
+      if (!mounted.current) return;
+      if (scopeRef.current !== scope) throw new Error("Sources or exact reviewed decisions changed during export; no download or new history was recorded. Review and retry.");
       const url = URL.createObjectURL(bundle); const anchor = document.createElement("a");
       anchor.href = url; anchor.download = `SCAN-QUALIFICATION-ONLY-${id.slice(0, 8)}.zip`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 2000);
       setRepair(old => ({ ...old, history: [...old.history, revision] }));
-      setMessage(`${accepted} accepted scalar change(s) packaged in a complete native copy. Generated package hash verified; browser download requested. Check your downloads for the ZIP. The evaluation bundle includes a reopenable project with this revision and decisions. Binding, inspection repair and Eagle compatibility remain unverified.`);
+      setMessage(`${accepted} accepted scalar change(s) and ${preparationAccepted.length} accepted disabled preparations packaged in one complete native copy. Generated package hash verified; browser download requested. The project retains both reviewed sets and this combined revision. Binding, inspection repair and Eagle compatibility remain unverified.`);
       setAck(false);
     } catch (error) { setMessage(error instanceof Error ? error.message : "Export failed."); }
     finally { setWorking(false); }
@@ -117,6 +142,7 @@ export function RepairReview() {
       <label className="scan-field">Operation<select value={field} onChange={event => { setField(event.target.value); setAfter(""); }}><option value="Roi/cx">Local ROI X trial</option><option value="CenterPosX">Stored placement-center X trial</option><option value="ENABLE">Disable reviewed redundant placement</option></select></label>
       {part && <><p>Exact before: <code>{scalar(field) || "Missing/repeated — held"}</code>. Scope: this placement in module {scalar("ParentId")}; Master {scalar("MasterKey")} is preserved.</p><details><summary>Native literals and comparison evidence</summary><pre>{JSON.stringify(part.rawFields, null, 2)}</pre><p>Native frame and units are unqualified. CAD/Gerber registration does not qualify native placement or Master-local coordinates.</p>{peers.map(peer => <div key={peer.sourcePath}><strong>Same module/reference: {peer.sourcePath}</strong><pre>{JSON.stringify(Object.fromEntries(Object.keys({ ...part.rawFields, ...peer.rawFields }).filter(key => JSON.stringify(part.rawFields[key]) !== JSON.stringify(peer.rawFields[key])).map(key => [key, { selected: part.rawFields[key], peer: peer.rawFields[key] }])), null, 2)}</pre></div>)}</details></>}
       {part && <NativeGeometry sourcePath={part.sourcePath} />}
+      {part && <RepairImpact sourcePath={part.sourcePath} field={field} after={field === "ENABLE" ? "False" : after} />}
       {field === "ENABLE" ? <label className="scan-field">Retained placement<select value={retained} onChange={event => setRetained(event.target.value)}><option value="">Select and justify survivor</option>{peers.map(peer => <option key={peer.sourcePath} value={peer.sourcePath}>ID {peer.rawFields.ID?.join()} · Master {peer.rawFields.MasterKey?.join()} · ENABLE {peer.rawFields.ENABLE?.join()}</option>)}</select><span>Both records and all teaching differences require review. No survivor is chosen automatically.</span></label> : <label className="scan-field">Exact proposed X literal<input value={after} onChange={event => setAfter(event.target.value)} maxLength={80} /></label>}
       <label className="scan-field">Reviewer<input value={reviewer} onChange={event => setReviewer(event.target.value)} maxLength={256} /></label>
       <label className="scan-field">Supporting evidence file<input type="file" onChange={async event => { const file = event.target.files?.[0]; if (!file) return; if (file.size > 8_000_000) return setMessage("Evidence file limit is 8 MB."); setReferenceHash(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer())), byte => byte.toString(16).padStart(2, "0")).join("")); setReferenceName(file.name); if (session.attachments.length < 3) session.setAttachments(old => [...old, { role: "evidence", file }]); else setMessage("Supporting hash retained; attachment slots are full. Keep this file alongside the bundle."); }} /></label>
@@ -128,9 +154,10 @@ export function RepairReview() {
     {message && <p role="status">{message}</p>}
   </section>
   {req && <section className="scan-review-controls"><h2>Exact proposed changes</h2>{!fresh && <p role="alert">Stale or different source, mapping, evidence or snapshot. These decisions are retained for history; export is blocked. Recheck against the matching source.</p>}
-    {req.proposals.map(proposal => { const decision = req.acceptances.find(value => value.proposalId === proposal.id); return <article key={proposal.id}><h3>{proposal.identity.RefID} · module {proposal.identity.ParentId} · ID {proposal.identity.ID}</h3><p><code>{proposal.path}</code>: <code>{proposal.before}</code> → <code>{proposal.after}</code></p><p>Master {proposal.identity.MasterKey} preserved. Protected: unrelated coordinates, limits, images, OCR, fiducials, calibration and unknown fields. Binding/dependent-window effects remain unresolved.</p>{req.evidence.filter(value => proposal.evidenceIds.includes(value.id)).map(value => <p key={value.id}>{value.summary}</p>)}<label className="scan-field">Decision<select aria-label={`Decision ${proposal.id}`} value={decision?.decision ?? "pending"} disabled={working || !fresh || !decision} onChange={event => { const next = event.target.value as "pending" | "accepted" | "rejected"; setAck(false); setRepair(old => ({ ...old, request: old.request && { ...old.request, acceptances: old.request.acceptances.map(value => value.proposalId === proposal.id ? { ...value, decision: next } : value) } })); }}><option value="pending">Pending</option><option value="accepted">Accept for isolated qualification only</option><option value="rejected">Reject</option></select></label></article>; })}
+    {req.proposals.map(proposal => { const decision = req.acceptances.find(value => value.proposalId === proposal.id); return <article key={proposal.id}><h3>{proposal.identity.RefID} · module {proposal.identity.ParentId} · ID {proposal.identity.ID}</h3><p><code>{proposal.path}</code>: <code>{proposal.before}</code> → <code>{proposal.after}</code></p><p>Master {proposal.identity.MasterKey} preserved. Protected: unrelated coordinates, limits, images, OCR, fiducials, calibration and unknown fields. Binding/dependent-window effects remain unresolved.</p><RepairImpact sourcePath={proposal.path.split("]/", 1)[0] + "]"} field={proposal.path.split("]/")[1]} after={proposal.after} />{req.evidence.filter(value => proposal.evidenceIds.includes(value.id)).map(value => <p key={value.id}>{value.summary}</p>)}<label className="scan-field">Decision<select aria-label={`Decision ${proposal.id}`} value={decision?.decision ?? "pending"} disabled={working || !fresh || !decision} onChange={event => { const next = event.target.value as "pending" | "accepted" | "rejected"; setAck(false); setRepair(old => ({ ...old, request: old.request && { ...old.request, acceptances: old.request.acceptances.map(value => value.proposalId === proposal.id ? { ...value, decision: next } : value) } })); }}><option value="pending">Pending</option><option value="accepted">Accept for isolated qualification only</option><option value="rejected">Reject</option></select></label></article>; })}
     <div className="scan-actions"><Button variant="outline" disabled={working || readOnly} onClick={() => review(req)}>Recheck exact proposal set</Button><Button variant="outline" onClick={() => downloadJson(req, "repair-request.json")}>Export proposals and decisions</Button><Button variant="outline" disabled={working} onClick={() => { setRepair(old => ({ ...old, request: null })); setAck(false); }}>Clear current proposal set</Button></div>
     <label><input type="checkbox" checked={ack} disabled={working || !fresh} onChange={event => setAck(event.target.checked)} /> I acknowledge QUALIFICATION ONLY: selected main is changed; Temp/backup retain original state. Eagle compatibility, binding and inspection behavior are unverified.</label>
+    <p>{preparationAccepted.length ? `This export also reconstructs ${preparationAccepted.length} separately accepted disabled preparations from the original source. Both exact reviewed sets are freshly checked and recorded; all other existing work is preserved.` : "No accepted native preparation is selected for this export."} Development-test decisions do not establish operator approval.</p>
     <p><Button disabled={working || !fresh || !ack || !accepted || repair.history.length >= 50} onClick={generate}>{working ? "Checking source and packaging…" : `Generate qualification candidate (${accepted} accepted)`}</Button></p>
   </section>}
   <section className="scan-review-controls"><h2>Candidate revisions</h2><p>Each revision records its exact accepted set and hashes. Keep the downloaded package with the saved project. History records package generation; it does not confirm the browser saved the file or grant machine validation.</p>{repair.history.map(item => <details key={item.id}><summary>{item.recordedAt} · {item.id}</summary><p>Package <code>{item.packageSha256}</code><br />Native candidate <code>{item.candidateSha256}</code></p><Button variant="outline" onClick={() => downloadJson(item, `candidate-${item.id}.json`)}>Download revision receipt</Button></details>)}</section>

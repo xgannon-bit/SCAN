@@ -4,6 +4,15 @@ These are product targets, not a declaration of implemented format support.
 
 ## Integrated offline evaluation route
 
+The [connected offline workflow](integrated-offline-workflow.md) adds reviewed
+source-origin registration with explicit revision/frame holds, full-field
+duplicate teaching comparisons and one candidate that composes separately
+accepted disabled preparations with scalar qualification trials. Both export
+entry points preserve accepted work; final native diagnostics are rebuilt after
+composition. Saved source-alignment and duplicate comparison decisions are
+evidence-bound observations, never machine qualification. Scanned-starter seed
+dependencies and the absence of genuine starter qualification remain visible.
+
 See [the evaluation guide](evaluation-guide.md). Repair Review now connects selected-source analysis to exact reviewed scalar proposals, explicit qualification acknowledgement, complete native-copy output and a reopenable project in one download. Complete disabled part preparation is also integrated: compatible source-owned job-local templates produce new placements, local Masters and scoped disabled windows after individual review. The local X, disable and preparation operations are qualification experiments. Their evidence is operator supplied; the writer verifies source/identity/byte preservation, not engineering validity. Binding writes remain held. This does not complete independent whole-board diagnosis or prove a repaired inspection.
 
 | Requested requirement | Current implementation / remaining gap |

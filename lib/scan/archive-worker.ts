@@ -28,7 +28,7 @@ export async function archiveWorker(bytes: Buffer, control: Record<string, unkno
     const source = path.join(directory, "source.zip");
     await writeFile(source, bytes, { flag: "wx", mode: 0o600 });
     let layoutSource: string | undefined;
-    if (String(control.action).startsWith("draft-")) {
+    if (String(control.action).startsWith("draft-") || (control.action === "repair-export" && (control.repair as Record<string, unknown>)?.preparation)) {
       if (!layoutBytes?.length || layoutBytes.length > 8_000_000) throw new Error("Archive preparation requires a source layout no larger than 8 MB.");
       layoutSource = path.join(directory, "layout.pcb");
       await writeFile(layoutSource, layoutBytes, { flag: "wx", mode: 0o600 });

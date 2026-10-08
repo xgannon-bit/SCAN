@@ -23,6 +23,8 @@ def dispatch(request):
     fields['reference'] = fields['download']
     for repair_action in ('repair-review', 'repair-export'):
         fields[repair_action] = fields['download'] | {'repair'}
+    if action == 'repair-export' and isinstance(request.get('repair'), dict) and 'preparation' in request['repair']:
+        fields['repair-export'] = fields['repair-export'] | {'layoutSource'}
     for draft_action in ('draft-review', 'draft-export'):
         fields[draft_action] = fields['download'] | {'draft', 'layoutSource'}
     if not isinstance(action, str) or action not in fields or set(request) != fields[action]:
@@ -56,7 +58,7 @@ def dispatch(request):
         review['reference'] = prepare_reference(source, Path(source).parent / 'result.native-reference.zip', review)
     if action in ('repair-review', 'repair-export'):
         from .repair_review import run
-        return run(source, review, {**request['repair'], 'action': action})
+        return run(source, review, {**request['repair'], 'action': action}, request.get('layoutSource'))
     if action in ('draft-review', 'draft-export'):
         from .native_preparation_review import run
         return run(source, request['layoutSource'], review, {**request['draft'], 'action': action})

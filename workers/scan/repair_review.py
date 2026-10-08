@@ -109,7 +109,7 @@ def _software_identity():
                            for name in ('repair_review.py', 'qualification_candidate.py', 'archive_browser_cli.py')}}
 
 
-def run(source, review, control):
+def run(source, review, control, layout_path=None):
     try:
         checked = review_request(source, review, control['request'])
         if control['action'] == 'repair-review':
@@ -117,6 +117,9 @@ def run(source, review, control):
                     'machineExportAllowed': False, 'evidenceAuthority': 'operator-declared; not independently qualified by writer'}
         if control.get('acknowledgement') != 'QUALIFICATION ONLY':
             raise CaptureBlocked('ACKNOWLEDGEMENT_REQUIRED', 'Acknowledge qualification-only export and unresolved binding/inspection behavior.')
+        if 'preparation' in control:
+            from .repair_composition import compose_preparation
+            return compose_preparation(source, layout_path, review, control)
         request = control['request']
         result = create_qualification_candidate(source, Path(source).parent / 'result.scan-qualification.zip', request)
         if result['status'] != 'success':

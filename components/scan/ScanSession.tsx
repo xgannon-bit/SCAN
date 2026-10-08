@@ -14,6 +14,7 @@ import { useGerberSession } from "./GerberSession";
 
 import { emptyNativePreparation, type NativePreparationSession } from "@/lib/scan/native-preparation-session";
 import { emptyRepair, type RepairSession } from "@/lib/scan/repair-session";
+import { emptySourceRegistration, type SourceRegistrationSession } from "@/lib/scan/source-registration";
 
 const initial: PlacementConfig = { startRow: 1, columns: { refdes: 1, mpn: 2, xy: 4, side: 5, rotation: 6, footprint: 7 }, module: "", side: "", units: "unknown", rotationDirection: "unknown", decimalSeparator: ".", pairSeparator: "," };
 
@@ -26,6 +27,7 @@ function usePlacementSession() {
   const [attachments, setAttachments] = useState<{ role: "BOM" | "evidence"; file: File }[]>([]);
   const [nativePreparation, setNativePreparation] = useState<NativePreparationSession>(emptyNativePreparation);
   const [repair, setRepair] = useState<RepairSession>(emptyRepair);
+  const [sourceRegistration, setSourceRegistration] = useState<SourceRegistrationSession>(emptySourceRegistration);
   const archive = useArchiveSession();
   const returnedArchive = useArchiveSession();
   const [eagleVersion, updateEagleVersion] = useState("");
@@ -82,7 +84,7 @@ function usePlacementSession() {
   }
   function changeSheet(value: number) { invalidate(); setNotes(retainSessionNote); setSheet(value); setPreview(null); }
   function changeDelimiter(value: string) { invalidate(); setNotes(retainSessionNote); setDelimiter(value); setPreview(null); }
-  function reset() { changeFile(null); changeBaseline(null); gerber.reset(); bom.reset(); comparisons.reset(); layout.changeFile(null); setEagleVersion(""); setNotes({}); setProjectEvidence(undefined); setRepair(emptyRepair()); setNativePreparation(emptyNativePreparation()); setAttachments([]); evidenceSources.current.clear(); }
+  function reset() { changeFile(null); changeBaseline(null); gerber.reset(); bom.reset(); comparisons.reset(); layout.changeFile(null); setEagleVersion(""); setNotes({}); setProjectEvidence(undefined); setRepair(emptyRepair()); setSourceRegistration(emptySourceRegistration()); setNativePreparation(emptyNativePreparation()); setAttachments([]); evidenceSources.current.clear(); }
   function cancel() {
     revision.current += 1;
     controller.current?.abort(); controller.current = null;
@@ -153,7 +155,7 @@ function usePlacementSession() {
         gerber: gerber.file ? { file: gerber.file, settings: { config: gerber.config, points: gerber.points, scope: gerber.scope, tolerance: gerber.tolerance, basis: gerber.basis, checked: !!gerber.alignment } } : null,
         original: archive.archiveFile ? { file: archive.archiveFile, selection: archive.selection, draft: archive.archiveDraft } : null,
         returned: returnedArchive.archiveFile ? { file: returnedArchive.archiveFile, selection: returnedArchive.selection, draft: returnedArchive.archiveDraft } : null,
-        ...(layout.file ? { layout: { file: layout.file, checked: !!layout.result } } : {}), comparisons: comparisons.entries, ...(bom.file ? { bom: { file: bom.file, config: bom.config, sheet: bom.sheet, delimiter: bom.delimiter, checked: !!bom.result } } : {}), attachments, notes, repair: repairOverride, nativePreparation: preparationOverride, machineVersion: eagleVersion, ...(projectEvidence ? { evidence: projectEvidence } : {}),
+        ...(layout.file ? { layout: { file: layout.file, checked: !!layout.result } } : {}), comparisons: comparisons.entries, ...(bom.file ? { bom: { file: bom.file, config: bom.config, sheet: bom.sheet, delimiter: bom.delimiter, checked: !!bom.result } } : {}), attachments, notes, sourceRegistration, repair: repairOverride, nativePreparation: preparationOverride, machineVersion: eagleVersion, ...(projectEvidence ? { evidence: projectEvidence } : {}),
       });
   }
 
@@ -209,7 +211,7 @@ function usePlacementSession() {
       // mapping cannot currently be parsed. Derived results are never restored.
       setFile(placement?.source ?? null); setConfig(placement?.record.config ?? initial); setSheet(placement?.record.sheetIndex ?? 0); setDelimiter(placement?.record.delimiter ?? ",");
       setPreview(null); setResult(null); setSelectedRow(null); setNotes(restored.record.notes);
-      changeBaseline(null); updateEagleVersion(restored.record.machineVersion); setProjectEvidence(restored.record.evidence); setRepair(restored.record.repair ?? emptyRepair()); setNativePreparation(restored.record.nativePreparation ?? emptyNativePreparation()); setAttachments(restored.attachments ?? []); sourceRestored = true;
+      changeBaseline(null); updateEagleVersion(restored.record.machineVersion); setProjectEvidence(restored.record.evidence); setRepair(restored.record.repair ?? emptyRepair()); setSourceRegistration(restored.record.sourceRegistration ?? emptySourceRegistration()); setNativePreparation(restored.record.nativePreparation ?? emptyNativePreparation()); setAttachments(restored.attachments ?? []); sourceRestored = true;
       // One archive worker is allowed at a time. Keep the returned file visible
       // while the original is inventoried, without reusing any saved reports.
       if (restored.original) archive.loadArchiveDraft(restored.original);
@@ -254,7 +256,7 @@ function usePlacementSession() {
   const contextFiles = useMemo(() => [file, gerber.file, bom.file, layout.file, ...comparisons.entries.map(item => item.file), ...attachments.map(item => item.file)], [file, gerber.file, bom.file, layout.file, comparisons.entries, attachments]);
   const sourceContext = useSourceContext(contextFiles, JSON.stringify({ config, sheet, delimiter, gerber: { config: gerber.config, points: gerber.points, scope: gerber.scope, tolerance: gerber.tolerance, basis: gerber.basis }, bom: { config: bom.config, sheet: bom.sheet, delimiter: bom.delimiter }, comparisons: comparisons.entries.map(item => ({ config: item.config, sheet: item.sheetIndex, delimiter: item.delimiter })) }));
   const stage = busy ? "Processing source" : error ? "Import needs attention" : result ? result.status === "success" ? "Placement parsing complete" : "Placement review needs attention" : preview ? "Mapping needs validation" : file ? "Ready to read" : "No source loaded";
-  return { sourceContext, layout, comparisons, bom, attachments, setAttachments, buildProjectBlob, nativePreparation, setNativePreparation, repair, setRepair, file, preview, result, config, sheet, delimiter, busy, error, selectedRow, notes, notice, stage, edit, changeFile, changeSheet, changeDelimiter, reset, cancel, run, download, setSelectedRow, editNote, saveReview, saveProject, openReview, projectEvidence, ...archive, changeArchive: changeBaseline, returnedArchive, eagleVersion, setEagleVersion, qualification, gerber };
+  return { sourceContext, sourceRegistration, setSourceRegistration, layout, comparisons, bom, attachments, setAttachments, buildProjectBlob, nativePreparation, setNativePreparation, repair, setRepair, file, preview, result, config, sheet, delimiter, busy, error, selectedRow, notes, notice, stage, edit, changeFile, changeSheet, changeDelimiter, reset, cancel, run, download, setSelectedRow, editNote, saveReview, saveProject, openReview, projectEvidence, ...archive, changeArchive: changeBaseline, returnedArchive, eagleVersion, setEagleVersion, qualification, gerber };
 }
 
 const ScanSessionContext = createContext<ReturnType<typeof usePlacementSession> | null>(null);

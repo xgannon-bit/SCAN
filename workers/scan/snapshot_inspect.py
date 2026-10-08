@@ -301,11 +301,19 @@ def inspect_snapshot(source_path, expected_package_sha256, limits=None):
                     'snapshotId': snapshot_id, 'selection': manifest['selection']}
                 from .native_inspection_work import inspection_work
                 inspection_queue = inspection_work(native_records, bindings['sourceContext'])
+                from .native_duplicate_review import duplicate_review
+                # Read only the explicitly selected, hash-verified XML pair.
+                # Full fields matter here: whitelisted scalar readers cannot
+                # establish equivalence of teaching or unknown dependencies.
+                duplicate_work = duplicate_review(
+                    outer.read(manifest['selection']['job']['storedPath']),
+                    outer.read(manifest['selection']['master']['storedPath']) if manifest['selection']['master'] else None,
+                    bindings['sourceContext'])
                 return {'status': 'success', 'code': 'PREFLIGHT_RECORDED', 'artifactType': 'scan.snapshot-preflight', 'schemaVersion': '1',
                         'readerVersion': 'native-inspection-work-1', 'packageSha256': expected, 'snapshotId': snapshot_id, 'source': manifest['source'],
                         'selection': manifest['selection'], 'integrity': {'status': 'verified-against-capture-hash', 'allArchivedFilesVerified': True},
                         'preservedFiles': actual_members, 'preservedDirectories': sorted(e.path for e in inventory.entries if e.is_directory),
-                        'xmlEnvelopes': documents, 'nativeRecords': native_records, 'literalDependencies': report_literal_dependencies(native_records), 'nativeAccounting': accounting, 'nativeBindings': bindings, 'nativeInspectionWork': inspection_queue, 'recordedCaptureLimits': manifest['limits'], 'readerLimits': asdict(limits),
+                        'xmlEnvelopes': documents, 'nativeRecords': native_records, 'literalDependencies': report_literal_dependencies(native_records), 'nativeAccounting': accounting, 'nativeBindings': bindings, 'nativeInspectionWork': inspection_queue, 'nativeDuplicateReview': duplicate_work, 'recordedCaptureLimits': manifest['limits'], 'readerLimits': asdict(limits),
                         'readiness': {'packageComplete': None, 'offlinePreparationCoverage': None, 'machineCompatibility': None, 'opticalTeachingValidation': None, 'productionRelease': None},
                         'coverage': {'represented': None, 'enabled': None, 'taught': None, 'verified': None, 'released': None},
                         'dependencyGraph': None, 'nativeSchemaSupported': False, 'machineExportAllowed': False, 'candidateId': None,

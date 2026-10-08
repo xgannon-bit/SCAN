@@ -1,3 +1,5 @@
+import { validateNativePreparationSession, type NativePreparationSession } from "./native-preparation-session";
+export type RepairComposition = Pick<NativePreparationSession["history"][number], "review" | "reviewer" | "accepted" | "packageProfiles">;
 export type RepairProposal = { id: string; path: string; identity: Record<"ID" | "ParentId" | "MasterKey" | "RefID", string>; before: string; after: string; evidenceIds: string[]; dependencyProposalIds?: string[] };
 export type RepairRequest = {
   artifactType: "scan.qualification-patch-request"; schemaVersion: "1"; purpose: "qualification-only";
@@ -10,7 +12,7 @@ export type RepairRequest = {
 export type RepairSession = {
   sourceContext?: string;
   request: RepairRequest | null;
-  history: { id: string; recordedAt: string; sourceSha256: string; packageSha256: string; candidateSha256: string; request: RepairRequest }[];
+  history: { id: string; recordedAt: string; sourceSha256: string; packageSha256: string; candidateSha256: string; request: RepairRequest; composition?: RepairComposition }[];
   work: { key: string; sourceSha256: string; snapshotId: string; status: "review-needed" | "reviewed-offline" | "intentionally-excluded" | "machine-work"; note: string }[];
 };
 export const emptyRepair = (): RepairSession => ({ request: null, history: [], work: [] });
@@ -30,6 +32,13 @@ export function validateRepairSession(value: unknown): RepairSession {
   for (const revision of item.history) {
     if (!hash(revision.sourceSha256) || !hash(revision.packageSha256) || !hash(revision.candidateSha256) || typeof revision.id !== "string" || typeof revision.recordedAt !== "string") throw new Error("Invalid candidate history.");
     request(revision.request);
+    if (revision.composition) {
+      const c = revision.composition;
+      validateNativePreparationSession({ reviewer: c.reviewer, review: c.review, history: [{ id: revision.id,
+        recordedAt: revision.recordedAt, packageSha256: revision.packageSha256, candidateSha256: revision.candidateSha256,
+        ...c }], ...(c.packageProfiles ? { packageProfiles: c.packageProfiles } : {}) });
+      if (c.review.archiveSha256 !== revision.sourceSha256) throw new Error("Combined preparation and repair sources differ.");
+    }
   }
   for (const work of item.work) if (typeof work.key !== "string" || work.key.length > 2048 || !hash(work.sourceSha256) || typeof work.snapshotId !== "string" || !["review-needed", "reviewed-offline", "intentionally-excluded", "machine-work"].includes(work.status) || typeof work.note !== "string" || work.note.length > 2000) throw new Error("Invalid work observation. Observations cannot grant machine validation.");
   return item;

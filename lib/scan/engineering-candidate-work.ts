@@ -82,3 +82,12 @@ export async function readCandidateWork(blob: Blob, candidateSha256: string, arc
   if (bindingWork.status !== "recorded" || !Array.isArray(bindingWork.components) || bindingWork.components.length !== accounting.length || !Array.isArray(bindingWork.sharedBlockers) || queue.status !== "recorded" || !Array.isArray(queue.scopes) || !Array.isArray(queue.windows) || queue.windows.length > 20000) throw new Error("Actual candidate binding/window work is unavailable.");
   return { accounting, bindingWork, queue };
 }
+
+/** The composed repair export rederives the plan on the worker. Read that exact
+ * hash-verified plan to associate final native records with accepted recipes. */
+export async function readComposedCandidateWork(blob: Blob, candidateSha256: string, archiveSha256: string, accepted: string[]) {
+  const decoded = await reports(blob, ["proposals.json"]);
+  const plan = decoded.get("proposals.json") as { items?: PreparationItem[] };
+  if (!Array.isArray(plan?.items) || plan.items.length > 1000) throw new Error("Composed preparation plan is unavailable.");
+  return { ...await readCandidateWork(blob, candidateSha256, archiveSha256, plan.items, accepted), items: plan.items };
+}
