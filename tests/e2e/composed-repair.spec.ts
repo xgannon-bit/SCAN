@@ -24,12 +24,12 @@ test('reviewed scalar and disabled part prepare one candidate, rejected change a
   await page.getByLabel('Supporting evidence file').setInputFiles({ name: 'fictional.txt', mimeType: 'text/plain', buffer: Buffer.from('Invented software fixture; no engineering or operator approval.') });
   await page.getByLabel('Independent basis, coordinate frame and unresolved dependencies').fill('Invented raw-frame preservation test; dependent window propagation and binding remain unresolved.');
   await page.getByRole('button', { name: 'Check and add proposal', exact: true }).click();
-  await page.getByRole('combobox', { name: /^Decision / }).selectOption('accepted');
+  await page.getByRole('combobox', { name: /^Decision (?!for )/ }).selectOption('accepted');
   await expect(page.getByRole('img', { name: 'Requested native ROI before and after, unqualified frame' }).first()).toBeVisible();
   await page.getByRole('combobox', { name: 'Operation', exact: true }).selectOption('CenterPosX');
   await page.getByLabel('Exact proposed X literal').fill('900');
   await page.getByRole('button', { name: 'Check and add proposal', exact: true }).click();
-  const scalarDecisions = page.getByRole('combobox', { name: /^Decision / });
+  const scalarDecisions = page.getByRole('combobox', { name: /^Decision (?!for )/ });
   await scalarDecisions.nth(1).selectOption('rejected');
   const prep = page.getByRole('region', { name: 'Native part preparation', exact: true });
   await prep.getByRole('button', { name: 'Find supported native preparation', exact: true }).click();
