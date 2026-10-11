@@ -38,6 +38,11 @@ test('different sides and unknown native units remain held', () => {
   assert.ok(sourceRegistrationAnalysis(source, target, draft).holds.some(h => h.includes('Different board sides')));
   target.normalizedUnits = 'unqualified-native'; assert.ok(sourceRegistrationAnalysis(source, target, draft).holds.some(h => h.includes('Native coordinate')));
 });
+test('unknown target side is held without inventing a different physical side', () => {
+  const { source, target, draft } = fixture(); target.points.forEach(p => p.side = 'unknown'); draft.targetScope = registrationScope(target.points[0]); draft.targetSide = '';
+  const result = sourceRegistrationAnalysis(source, target, draft);
+  assert.equal(result.status, 'held'); assert.ok(result.holds.some(h => h.includes('Record the physical board side'))); assert.ok(!result.holds.some(h => h.includes('Different board sides'))); assert.ok(result.transform);
+});
 test('revision mismatch, conflicting filename revision and unreviewed origins hold correction', () => {
   const { source, target, draft } = fixture(); draft.sourceRevision = '3';
   assert.ok(sourceRegistrationAnalysis(source, target, draft).holds.some(h => h.includes('Different source revisions')));

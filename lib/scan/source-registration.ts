@@ -67,7 +67,7 @@ export function sourceRegistrationAnalysis(source: RegistrationSource, target: R
   const reviewedSideA = draft.sourceSide.toLowerCase(), reviewedSideB = draft.targetSide.toLowerCase();
   if (!["top", "bottom"].includes(reviewedSideA) || !["top", "bottom"].includes(reviewedSideB)) holds.push("Record the physical board side for each source; null layout side is not proof of top");
   if (scopedA.some(p => ["top", "bottom"].includes(p.side.toLowerCase()) && p.side.toLowerCase() !== reviewedSideA) || scopedB.some(p => ["top", "bottom"].includes(p.side.toLowerCase()) && p.side.toLowerCase() !== reviewedSideB)) holds.push("Reviewed side contradicts the parsed source side; correct source interpretation first");
-  if (reviewedSideA !== reviewedSideB) holds.push("Different board sides require an independently established side/mirror contract");
+  if (["top", "bottom"].includes(reviewedSideA) && ["top", "bottom"].includes(reviewedSideB) && reviewedSideA !== reviewedSideB) holds.push("Different board sides require an independently established side/mirror contract");
   const tolerance = Number(draft.toleranceMm);
   if (!Number.isFinite(tolerance) || tolerance <= 0 || tolerance > 1) holds.push("Residual threshold must be greater than zero and at most 1 mm");
   if (draft.fitReferences.length < 3 || draft.checkReferences.length < 1 || selected.length > 32) holds.push("Choose at least three noncollinear fit references and one independent check reference (32 total maximum)");

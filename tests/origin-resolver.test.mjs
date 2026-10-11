@@ -39,6 +39,10 @@ test('unknown side remains unknown even when reviewed registration says top; eve
   assert.equal(item.classification,'explained-convention');assert.equal(item.side,null);assert.equal(item.proposed.side,null);assert.equal(item.exportEligible,false);
   assert.equal(report.counts.held,5);assert.ok(item.holds.some(h=>h.code==='ORIGIN_SIDE_UNKNOWN'));
 });
+test('reviewed unknown side permits numeric convention diagnosis but never normalized export',()=>{
+  const f=fixture(90,false);f.draft.targetSide='';f.rebuild();const report=resolveOrigins(f.input);
+  assert.equal(n1(report).classification,'explained-convention');assert.equal(report.counts.classifications['already-consistent'],4);assert.equal(report.counts.exportEligible,0);assert.equal(report.counts.held,5);assert.ok(report.rows.every(r=>r.holds.some(h=>h.code==='ORIGIN_SIDE_UNKNOWN')));
+});
 test('pad envelope coincidence is a geometric witness, never independent body proof',()=>{
   const {input}=fixture();input.bodyEvidence=null;const p=input.layout.placements[4];
   p.sourceOwnedPads=[{padNumber:'1',sourcePath:'pad:1',sourceBoardPoint:{xMm:1.8,yMm:1.8}},{padNumber:'2',sourcePath:'pad:2',sourceBoardPoint:{xMm:4.8,yMm:1.8}}];
