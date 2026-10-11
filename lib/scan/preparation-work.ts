@@ -1,3 +1,5 @@
+import type { LayoutResult } from "./layout-types";
+import { packageIdentityEvidence } from "./package-identity";
 import type { BomResult } from "./bom-types";
 import type { ArchiveReview } from "./archive-types";
 import type { NativeInspectionWork } from "./native-inspection-work";
@@ -22,7 +24,7 @@ export type PreparationBindingWork = { status: string; components: { reference: 
   sharedBlockers: { code: string; message: string; componentCount: number }[] };
 
 /** Source evidence and applied native records are separate from optical completion. */
-export function preparationWork(accounting: PreparationAccounting[], items: PreparationItem[], accepted: string[], bom: BomResult | null, archive: ArchiveReview | null, bindingWork?: PreparationBindingWork, candidateQueue?: NativeInspectionWork) {
+export function preparationWork(accounting: PreparationAccounting[], items: PreparationItem[], accepted: string[], bom: BomResult | null, archive: ArchiveReview | null, bindingWork?: PreparationBindingWork, candidateQueue?: NativeInspectionWork, layout?: LayoutResult | null) {
   const applied = new Map(items.filter(i => i.digest && accepted.includes(i.digest)).map(i => [`${i.selection.moduleId}\0${i.reference}`, i]));
   const one = (values: string[] | undefined) => values?.length === 1 ? values[0] : null;
   const queue = candidateQueue ?? archive?.preflight.nativeInspectionWork;
@@ -51,7 +53,9 @@ export function preparationWork(accounting: PreparationAccounting[], items: Prep
     const scopeIds = new Set(scopes.map(s => s.id));
     const windows = prepared && item?.dependencies ? item.dependencies.windowIds.map(id => ({ id, masterKey: item.dependencies!.masterKey, algorithmCount: 0, referenceGeometry: item.dependencies!.windowRoles?.find(w => w.windowId === id) ?? null, geometry: "unverified", binding: "unresolved", teaching: "not-prepared" }))
       : (queue?.windows.filter(w => w.scopeId && scopeIds.has(w.scopeId)) ?? []).map(w => ({ id: one(w.rawFields.ID), masterKey: one(w.rawFields.ParentId), algorithmCount: w.algorithmIds.length, geometry: w.geometryReview, binding: w.bindingReview, teaching: "preserved-unverified" }));
+    const packageIdentity = packageIdentityEvidence(component.reference, component.module, bom, layout, archive);
     const atEagle = ["Confirm current work-order population, board side, module and stage."];
+    if (packageIdentity.status === "package-qualification-held") atEagle.push(packageIdentity.reason);
     if (group === "engineering-dnp") atEagle.push("Decide fitted/DNP for this work order; do not enable a disabled DNP draft merely because a native record exists.");
     if (group === "hole-bearing") atEagle.push("Decide through-hole inspection for this stage; surface-pad preparation is not an exclusion decision.");
     if (pending) atEagle.push("Review the supported offline preparation proposal first; a proposal is not an applied native part.");
@@ -76,7 +80,7 @@ export function preparationWork(accounting: PreparationAccounting[], items: Prep
       state: component.status, category: group, appliedScalarTrials: scalarTrials,
       scalarTrialState: scalarTrials.length ? "applied-qualification-only" : "none-applied",
       stateBeforeScalarTrial: component.stateBeforeScalarTrial ?? null,
-      populationEvidence: population, rawBomPopulationEvidence: evidence?.populationEvidence ?? null,
+      packageIdentity, populationEvidence: population, rawBomPopulationEvidence: evidence?.populationEvidence ?? null,
       bomSourceSha256: bom?.sourceSha256 ?? null, bomSourceRow: evidence?.sourceRow ?? null,
       bomApplicability: applicability, workOrderPopulation: "unapproved", intentionallyExcluded: false,
       mountingEvidence: component.mountingEvidence ?? "unknown", sourcePath: component.sourcePath ?? null,
@@ -126,7 +130,7 @@ export function preparationWork(accounting: PreparationAccounting[], items: Prep
 }
 
 export function preparationWorkCsv(work: ReturnType<typeof preparationWork>) {
-  const columns = ["reference", "module", "category", "state", "scalarTrialState", "appliedScalarTrials", "populationEvidence", "workOrderPopulation", "nativeCreation", "nativePlacement", "alignment", "teaching", "placementIds", "masterKeys", "windowPreparation", "windows", "omittedWindows", "unrepresentedSourceLands", "thermalPads", "padBinding", "holdCode", "holdReason", "atEagle"] as const;
+  const columns = ["reference", "module", "category", "packageIdentity", "state", "scalarTrialState", "appliedScalarTrials", "populationEvidence", "workOrderPopulation", "nativeCreation", "nativePlacement", "alignment", "teaching", "placementIds", "masterKeys", "windowPreparation", "windows", "omittedWindows", "unrepresentedSourceLands", "thermalPads", "padBinding", "holdCode", "holdReason", "atEagle"] as const;
   const cell = (value: unknown) => {
     const text = typeof value === "string" ? value : JSON.stringify(value ?? "");
     return `"${/^[=+@-]/.test(text) ? "'" : ""}${text.replaceAll('"', '""')}"`;

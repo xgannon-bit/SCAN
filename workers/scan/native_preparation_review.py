@@ -8,6 +8,7 @@ from .disabled_draft_package import create_disabled_draft_package, package_diges
 from .native_preparation import automatic_plan, component_accounting, recipe_digest, apply_preparation
 from .native_pad_binding import diagnose_pad_bindings
 from .preparation_intents import preparation_intents
+from .native_seed_requirements import seed_requirements
 from .repair_review import _csv, _software_identity, _remaining_rows
 from .snapshot_capture import SnapshotSelection, CaptureBlocked
 
@@ -38,6 +39,7 @@ def run(source, layout_path, review, control):
         digest = package_digest(archive_hash, selection, plan)
         if control['action'] == 'draft-review':
             return {'status': 'success', 'artifactType': 'scan.native-preparation-review', 'plan': plan, 'digest': digest,
+                    'seedRequirements': seed_requirements(job, master, plan.get('packageProfiles', [])),
                     'accounting': component_accounting(job, plan), 'padBindingWork': diagnose_pad_bindings(job, master, pcb),
                     'preparationIntents': preparation_intents(job, master, pcb, plan['items']),
                     'qualificationOnly': True, 'machineExportAllowed': False}
@@ -77,7 +79,7 @@ def run(source, layout_path, review, control):
         result['software'] = _software_identity()
         result['software']['adapter'] = 'browser-native-preparation-1'
         result['software']['writer'] = plan['profile']
-        for name in ('native_preparation.py', 'native_preparation_review.py', 'disabled_draft.py',
+        for name in ('native_preparation.py', 'native_preparation_review.py', 'native_record_insertion.py', 'native_seed_requirements.py', 'disabled_draft.py',
                      'disabled_draft_package.py', 'accel_ascii.py', 'snapshot_capture.py', 'job_intake.py',
                      'native_pad_binding.py', 'preparation_intents.py', 'native_model_geometry.py', 'native_window_subset.py', 'paired_terminal_constructor.py', 'diode_constructor.py', 'three_terminal_constructor.py', 'physical_terminal_constructor.py', 'thermal_terminal_constructor.py'):
             result['software']['codeSha256'][name] = sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
@@ -90,6 +92,7 @@ def run(source, layout_path, review, control):
                         while chunk := incoming.read(1024 * 1024):
                             outgoing.write(chunk)
             for name, document in {'manifest.json': result, 'proposals.json': plan,
+                    'starter-seed-requirements.json': seed_requirements(job, master, plan.get('packageProfiles', [])),
                     'applied_changes.json': applied, 'decisions.json': {'reviewer': result['reviewer'], 'acceptedDigests': recipe['accepted'], 'reviewDigest': digest},
                     'component_accounting.json': accounting, 'baseline_component_accounting.json': component_accounting(job, plan),
                     'native-inspection-work.json': candidate_review.get('nativeInspectionWork'),

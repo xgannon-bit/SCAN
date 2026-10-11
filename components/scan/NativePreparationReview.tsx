@@ -8,7 +8,7 @@ import { useScanSession } from "./ScanSession";
 import { evaluationBundle } from "@/lib/scan/evaluation-bundle";
 import { buildSourceCrosswalk } from "@/lib/scan/source-crosswalk";
 import { preparationWork, preparationWorkCsv, type PreparationAccounting, type PreparationBindingWork } from "@/lib/scan/preparation-work";
-import { readCandidateWork } from "@/lib/scan/engineering-candidate-work";
+import { readCandidateWork, readGeneratedCandidate } from "@/lib/scan/engineering-candidate-work";
 import { buildOfflineReviewEvidence } from "@/lib/scan/offline-review-evidence";
 import { compositionDecisionContext } from "@/lib/scan/composition-context";
 
@@ -20,6 +20,7 @@ type Item = { status: string; reference?: string; digest?: string; reason?: stri
 type Review = { status: "success"; artifactType: "scan.native-preparation-review"; digest: string;
   plan: { source: { jobSha256: string; masterSha256: string; layoutSha256: string }; items: Item[] };
   accounting: PreparationAccounting[]; padBindingWork?: PreparationBindingWork;
+  seedRequirements?: { status: string; emptyContainerInsertion: string; genuineStarterQualification: string; requiredContents: { id: string; label: string; state: string; count: number; code: string | null; nextAction: string }[]; profileSeeds: { profileId: string; status: string; reason: string; code: string | null }[] };
   preparationIntents?: { counts: { components: number; ownedTerminalBindingIntents: number }; sharedContracts: { id: string; required: string }[] } };
 
 export function NativePreparationReview() {
@@ -37,8 +38,8 @@ export function NativePreparationReview() {
   const partial = ready.filter(item => item.dependencies?.windowPreparation === "partial-closed-window-subset");
   const fresh = !!review && saved.review?.digest === review.digest && saved.review.sourceContext === session.sourceContext && saved.review.archiveSha256 === archiveReview?.preflight.source.sha256 && saved.review.layoutSha256 === layout.result?.sourceSha256;
   const accepted = fresh ? saved.review!.decisions.filter(item => item.decision === "accepted").map(item => item.digest) : [];
-  const work = review ? preparationWork(review.accounting, review.plan.items, [], session.bom.result, archiveReview, review.padBindingWork) : null;
-  const canReview = !!archiveFile && !!archiveReview && !!layout.file && !!layout.result && !!session.sourceContext && selection?.jobRole === "main" && selection.masterRole === "main";
+  const work = review ? preparationWork(review.accounting, review.plan.items, [], session.bom.result, archiveReview, review.padBindingWork, undefined, layout.result) : null;
+  const canReview = !session.candidateWorkBusy && !session.generatedArchive.archiveBusy && !!archiveFile && !!archiveReview && !!layout.file && !!layout.result && !!session.sourceContext && selection?.jobRole === "main" && selection.masterRole === "main";
   async function call(action: "draft-review" | "draft-export", extra: Record<string, unknown>, abort: AbortController) {
     if (!archiveFile || !archiveReview || !layout.file || !layout.result || !selection) throw new Error("Select and preflight the main job/Master and read the source layout first.");
     const form = new FormData(); form.set("file", archiveFile); form.set("layout", layout.file); form.set("action", action);
@@ -91,9 +92,10 @@ export function NativePreparationReview() {
       const nextRepair = combined ? { ...session.repair, history: [...session.repair.history, { id, recordedAt: history.recordedAt,
         sourceSha256: archiveReview!.preflight.source.sha256, packageSha256, candidateSha256, request: structuredClone(scalarRequest!),
         composition: { review: history.review, reviewer: history.reviewer, accepted, ...(history.packageProfiles ? { packageProfiles: history.packageProfiles } : {}) } }] } : session.repair;
-      const project = await session.buildProjectBlob(nextRepair, next);
+      const candidate = await readGeneratedCandidate(blob, candidateSha256, selection!);
+      const project = await session.buildProjectBlob(nextRepair, next, { file: candidate.file, selection: candidate.record.selection, draft: candidate.record.draft });
       const crosswalk = buildSourceCrosswalk(session.bom.result, session.result, archiveReview, session.comparisons.entries.map(item => ({ name: item.file.name, result: item.result })), layout.result);
-      const candidateWork = { ...preparationWork(actualWork.accounting, review!.plan.items, accepted, session.bom.result, archiveReview, actualWork.bindingWork, actualWork.queue), candidateSha256, packageSha256 };
+      const candidateWork = { ...preparationWork(actualWork.accounting, review!.plan.items, accepted, session.bom.result, archiveReview, actualWork.bindingWork, actualWork.queue, layout.result), candidateSha256, packageSha256 };
       const bundle = await evaluationBundle([{ name: "engineering-QUALIFICATION-ONLY.zip", blob }, { name: "SCAN.scan-project.json", blob: project },
         { name: "baseline-offline-review.json", blob: new Blob([JSON.stringify(await buildOfflineReviewEvidence(session), null, 2)]) },
         { name: "baseline-source-reconciliation.json", blob: new Blob([JSON.stringify(crosswalk, null, 2)]) },
@@ -105,9 +107,10 @@ export function NativePreparationReview() {
       if (abort.signal.aborted) return;
       if (currentExportScope.current !== start) throw new Error("Sources or exact reviewed decisions changed during export; no download or new history was recorded. Review and retry.");
       setNativePreparation(next);
+      void session.generatedArchive.restoreArchive(candidate, new AbortController().signal);
       if (combined) session.setRepair(nextRepair);
       const url = URL.createObjectURL(bundle), a = document.createElement("a"); a.href = url; a.download = `SCAN-PREPARED-PARTS-QUALIFICATION-${id.slice(0, 8)}.zip`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 2000);
-      setAck(false); setMessage(`${accepted.length} parts prepared as disabled placements, local Masters and linked windows in a separate complete native copy.${combined ? ` ${scalarRequest!.acceptances.filter(a => a.decision === "accepted").length} separately accepted scalar trials included in the same candidate.` : ""} ${candidateWork.counts.preparedWithPartialWindows} have explicitly partial windows and unfinished window work. Package hash verified; download requested with exact change log, full component accounting, remaining Athena work and reopenable project. Eagle and inspection behavior remain unverified.`);
+      setAck(false); setMessage(`${accepted.length} parts prepared as disabled placements, local Masters and linked windows in a separate complete native copy.${combined ? ` ${scalarRequest!.acceptances.filter(a => a.decision === "accepted").length} separately accepted scalar trials included in the same candidate.` : ""} ${candidateWork.counts.preparedWithPartialWindows} have explicitly partial windows and unfinished window work. Package hash verified; generated candidate is being reanalyzed separately from the original. Download requested with exact change log, full component accounting, remaining Athena work and reopenable project. Eagle and inspection behavior remain unverified.`);
     } catch (error) { if (!abort.signal.aborted) setMessage(error instanceof Error ? error.message : "Preparation export failed."); }
     finally { if (controller.current === abort) { controller.current = null; setBusy(false); } }
   }
@@ -134,6 +137,7 @@ export function NativePreparationReview() {
     <Button disabled={!canReview || busy} onClick={analyze}>{busy ? "Working…" : "Find supported native preparation"}</Button>
     {saved.review && !review && <p>Saved exact decisions are retained. Recompute from verified source bytes to view the proposals and export.</p>}
     {review && <>
+      {review.seedRequirements && <details><summary>Selected starter structure and exact missing contents</summary><p>Empty collection insertion is supported serialization only. A genuine scan/fiducials/color-only starter remains unqualified; synthetic sparse fixtures are software tests, not Eagle evidence.</p><ul>{review.seedRequirements.requiredContents.map(r => <li key={r.id}><strong>{r.label}: {r.state === "missing" ? "Missing — held" : `${r.count} records present; qualification needed`}</strong>. {r.nextAction}</li>)}</ul>{review.seedRequirements.profileSeeds.map(r => <p key={r.profileId}>Profile {r.profileId}: {r.status}. {r.code ? `${r.code}: ` : ""}{r.reason}</p>)}</details>}
       <p>{ready.length - partial.length - constructed.length} proposals retain the full template window set. {constructed.length > 0 && `${constructed.length} additional proposals construct a manufacturer body and owned physical terminal reference windows; no teaching or binding is inferred. `}{partial.length > 0 && `${partial.length} additional proposals have explicitly partial local windows; omitted inspections require Eagle work. `}{review.accounting.filter(i => i.status === "held-no-supported-template").length} native CAD references still need a supported template or other preparation route. A proposal does not count as an applied part.</p>
       {work && <details><summary>Population, mounting evidence and exact preparation blockers</summary>
         <p>Engineering DNP and hole-bearing evidence are separate from missing populated SMT. Current work-order population and stage applicability remain unapproved; no reference is automatically excluded.</p>
@@ -155,6 +159,7 @@ export function NativePreparationReview() {
         <summary>{item.reference ?? item.selection.targetSourcePath} · {item.status === "ready-for-review" ? "disabled model proposal" : "held"}</summary>
         {item.status === "held" ? <p>{item.code}: {item.reason}</p> : <>
           <p>Source category: <strong>{work?.rows.find(r => r.reference === item.reference && r.module === item.selection.moduleId)?.category ?? "population unresolved"}</strong>. Engineering population evidence does not approve this work order. Any DNP draft stays disabled pending that decision.</p>
+          {work?.rows.filter(r => r.reference === item.reference && r.module === item.selection.moduleId).map(row => <p key={`${row.module}:${row.reference}`}><strong>Package identity: {row.packageIdentity.status.replaceAll("-", " ")}</strong>. BOM MPN: {row.packageIdentity.bomMpn ?? "Unresolved / DNP"}. {row.packageIdentity.comparisons.map(c => `${c.source}: ${c.value ?? "unknown"} (${c.state.replaceAll("-", " ")})`).join("; ")}. {row.packageIdentity.reason}</p>)}
           {item.dependencies?.windowPreparation === "constructed-body-terminal-geometry" && <p><strong>New package construction.</strong> Manufacturer body and owned terminal-land reference geometry; the source pad/pin map is verified. The selected original record supplies field formats only. Local native window axes, model metadata and terminal inspection properties remain qualification work; land reference windows are not taught lead/solder inspections.</p>}
           {item.basis?.geometryRoute === "polarized-two-terminal-body-v1" && <p><strong>Diode polarity evidence.</strong> Anode/cathode terminal roles and the body datum come from explicit source-bound evidence. Cathode direction in pattern axes: {JSON.stringify(item.basis.cathodeDirectionPatternAxes)}; native board axes: {JSON.stringify(item.basis.cathodeDirectionNativeBoardAxes)}. These are geometric directions, not taught polarity inspections. Verify them at Eagle before teaching or enabling.</p>}
           {item.basis?.geometryRoute === "polarized-three-terminal-body-v1" && <p><strong>Three physical leads.</strong> This draft contains a body reference and separately numbered anode, no-connection and cathode terminal-land references. NC remains a physical lead. The owned body datum and numbered package orientation are recorded below. These are disabled geometry references; bindings, polarity and inspection teaching remain unfinished.</p>}
@@ -169,7 +174,7 @@ export function NativePreparationReview() {
       </details>)}
       <details><summary>Full component accounting before apply</summary><table><thead><tr><th>Reference</th><th>Module</th><th>Population / mounting evidence</th><th>State</th><th>Next action</th></tr></thead><tbody>{review.accounting.map((item, i) => <tr key={i}><td>{item.reference}</td><td>{item.module}</td><td>{work?.rows[i].category}</td><td>{item.status}</td><td>{item.nextAction}</td></tr>)}</tbody></table></details>
       <label><input type="checkbox" checked={ack} disabled={busy || !fresh || !accepted.length} onChange={e => setAck(e.target.checked)} /> I acknowledge qualification-only output, disabled new parts and unresolved binding, teaching and Eagle compatibility.</label>
-      <p><Button disabled={busy || !fresh || !accepted.length || !ack || !saved.reviewer.trim() || saved.history.length >= 50} onClick={generate}>Apply accepted part preparation to a separate candidate</Button></p>
+      <p><Button disabled={busy || session.candidateWorkBusy || session.generatedArchive.archiveBusy || !fresh || !accepted.length || !ack || !saved.reviewer.trim() || saved.history.length >= 50} onClick={generate}>Apply accepted part preparation to a separate candidate</Button></p>
     </>}
     {message && <p role="status">{message}</p>}
     {!!saved.history.length && <details><summary>Prepared candidate history · {saved.history.length}</summary>{saved.history.map(h => <p key={h.id}>{h.recordedAt}: {h.accepted.length} disabled parts prepared · candidate <code>{h.candidateSha256}</code>. Eagle, binding and inspection remain unverified. {h.review.sourceContext !== session.sourceContext && "Historical source context differs from the current project."}</p>)}</details>}

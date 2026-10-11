@@ -237,7 +237,7 @@ def _check_body_anchor(target, profile, pcb, center, width, height):
 
 
 def construct(j, m, layout, pcb, choice, profile, allocate):
-    from .native_preparation import PART, MODEL, WINDOW, _contract, _neutral, _cad
+    from .native_preparation import _cad
     matches = [p for p in layout['placements'] if p['sourcePath'] == choice['targetSourcePath']]
     if len(matches) != 1:
         _fail('PACKAGE_SOURCE', 'One literal source placement is required.')
@@ -299,23 +299,8 @@ def construct(j, m, layout, pcb, choice, profile, allocate):
     noncollinear = bool(b and any(abs((b[1]-a[1])*(c[2]-a[2])-(b[2]-a[2])*(c[1]-a[1])) > 1e-6 for c in controls))
     if len(controls) < 4 or not noncollinear:
         _fail('PACKAGE_NATIVE_FRAME', 'At least four other noncollinear source/native CAD correspondences must support the 1:1 translation hypothesis.')
-    part = _record(j, 'PartDataList/PartData', 'ID', profile['seedPartId'])
-    model = _record(m, 'PartDataList/PartData', 'MasterKey', profile['seedMasterKey'])
-    if _text(part, 'MasterKey') != profile['seedMasterKey'] or _text(part, 'ParentId') != module:
-        _fail('PACKAGE_SEED_IDENTITY', 'Selected native schema seed identities do not link in this module.')
-    _contract(part, PART); _contract(model, MODEL); _neutral(part, model)
-    windows = [w for w in m.findall('WindowDataList/WindowData') if _text(w, 'ParentId') == profile['seedMasterKey']]
-    seeds = []
-    for key in ('bodyWindowId', 'terminalWindowId'):
-        candidates = [w for w in windows if _text(w, 'ID') == profile[key]]
-        if len(candidates) != 1:
-            _fail('PACKAGE_WINDOW_SEED', 'Selected native window format seed must be unique in its Master.')
-        w = candidates[0]; _contract(w, WINDOW); _rectangle(w, 'RelRoi')
-        if _text(w, 'ParentWndId') != '0' or _text(w, 'UseWndPoly') not in {'0', 'False'} or _text(w, 'ALIGNWND') != 'False' or _text(w, 'Shape') != '1':
-            _fail('PACKAGE_WINDOW_SEED', 'Independent rectangular, nonpolygon window formats are required.')
-        if (_one(w, 'WndDataInfo').text or '') not in {'', '0'} or _text(w, 'PropertyType') != ('Mount' if key == 'bodyWindowId' else 'Solder'):
-            _fail('PACKAGE_WINDOW_SEED', 'The body Mount and terminal Solder format seeds must have no opaque learned window data.')
-        seeds.append(w)
+    from .native_seed_requirements import constructor_seed
+    part, model, seeds = constructor_seed(j, m, module, profile)
     # No allocation occurs before all source, drawing and native checks pass.
     pid, key, number = allocate(), allocate(), allocate()
     newpart, newmodel = deepcopy(part), deepcopy(model)

@@ -109,3 +109,13 @@ owned-pad/window binding intents and hypothesized window coverage extents; nativ
 binding and FOV assignment remain held. A read-only controlled Eagle trial
 comparison reports identity/position, binding/FOV and unrelated-record/asset
 changes without granting qualification. See [the trial guide](eagle-preparation-trial.md).
+
+Generated candidate archives now remain distinct from original and Eagle-returned
+archives in saved projects. SCAN reparses the actual exported/reopened bytes and
+reproduces accepted preparation recipes before displaying component work. The
+workspace adds an independent source origin/body resolver, owned-pad/anchor
+view and reviewed centroid CSV export. Explicit source/BOM identity, revision,
+side, rotation and anchor holds remain visible; as-supplied coordinates can be
+exported without claiming a corrected physical body center. All source-only
+outputs remain Eagle-unqualified. Native seed diagnostics and exact empty-
+container insertion support sparse structural cases without inventing teaching.

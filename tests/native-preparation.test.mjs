@@ -8,7 +8,8 @@ import { validateNativePreparationSession } from '../lib/scan/native-preparation
 import { makeArchive, syntheticMembers, syntheticSelection } from './synthetic-archive.mjs';
 
 import { authoredPreparation } from './native-preparation-fixture.mjs';
-import { readCandidateWork } from '../lib/scan/engineering-candidate-work.ts';
+import { candidatePreparationWork } from '../lib/scan/candidate-work.ts';
+import { readCandidateWork, readGeneratedCandidate } from '../lib/scan/engineering-candidate-work.ts';
 
 test('browser worker rechecks full proposals and exports only accepted disabled source-derived parts', async () => {
   const fixture = authoredPreparation();
@@ -37,6 +38,27 @@ test('browser worker rechecks full proposals and exports only accepted disabled 
   assert.equal(candidateWork.bindingWork.components.find(r=>r.reference==='N2').nativePlacementCount,0);
   await assert.rejects(readCandidateWork(new Blob([output]), '0'.repeat(64),hash,checked.plan.items,proposal.accepted));
   await assert.rejects(readCandidateWork(new Blob([output]), response.headers.get('X-SCAN-Candidate-SHA256'),hash,checked.plan.items,[]));
+  const generated = await readGeneratedCandidate(new Blob([output]), response.headers.get('X-SCAN-Candidate-SHA256'), syntheticSelection);
+  assert.equal(generated.record.selection.jobRole, 'main');
+  const nativeBytes = Buffer.from(await generated.file.arrayBuffer());
+  const fresh = await (await archiveWorker(nativeBytes, { action: 'preflight', expectedArchiveSha256: generated.record.source.sha256, selection: syntheticSelection }, new AbortController().signal)).json();
+  const rebuilt = candidatePreparationWork(preflight, fresh, null, checked, proposal.accepted);
+  assert.equal(rebuilt.counts.preparedReferences, 1);
+  assert.equal(rebuilt.rows.find(r => r.reference === 'N1').windows.length, checked.plan.items[0].dependencies.windowIds.length);
+  assert.equal(rebuilt.rows.find(r => r.reference === 'N2').nativeCreation, 'proposal-awaiting-review');
+  assert.equal(rebuilt.machineExportAllowed, false);
+  assert.ok(!rebuilt.rows.find(r => r.reference === 'N1').padBinding.holdCodes.includes('BINDING_NATIVE_PART_MISSING'));
+  assert.equal(rebuilt.rows.find(r => r.reference === 'N1').padBinding.actualObservedPlacements.length, 1);
+  await assert.rejects(readGeneratedCandidate(new Blob([output]), '0'.repeat(64), syntheticSelection), /differs/);
+  const broken = Buffer.from(output), localName = broken.indexOf(Buffer.from('CANDIDATE.zip')), start = localName - 30;
+  assert.equal(broken.readUInt32LE(start), 0x04034b50);
+  const dataStart = localName + broken.readUInt16LE(start + 26) + broken.readUInt16LE(start + 28);
+  broken[dataStart + 3] ^= 1;
+  await assert.rejects(readGeneratedCandidate(new Blob([broken]), generated.record.source.sha256, syntheticSelection));
+  assert.throws(() => candidatePreparationWork(preflight, fresh, null, checked, []), /unexpected added/);
+  const altered = structuredClone(fresh), addedPart = altered.preflight.nativeRecords.job.records.find(p => p.rawFields.RefID?.[0] === 'N1' && p.kind === 'part-record');
+  addedPart.rawFields.ENABLE = ['True'];
+  assert.throws(() => candidatePreparationWork(preflight, altered, null, checked, proposal.accepted), /disabled windows/);
   const python = path.join(process.cwd(), '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
   const verify = spawnSync(python, ['-c', `import zipfile,io,json,sys
 with zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())) as z:

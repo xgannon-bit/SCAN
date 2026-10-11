@@ -3,8 +3,9 @@ import test from 'node:test';
 import { ARCHIVE_MAX_BYTES, PROJECT_MAX_BYTES, decodeProject, encodeProject, retainProjectEvidence, reviewMatchesSelection, selectionInInventory, validateProjectSession } from '../lib/scan/project-session.ts';
 import { encodeReview } from '../lib/scan/review-session.ts';
 import { archiveWorker } from '../lib/scan/archive-worker.ts';
-import { makeArchive, syntheticSelection } from './synthetic-archive.mjs';
+import { makeArchive, syntheticSelection, syntheticMembers } from './synthetic-archive.mjs';
 import { retainSessionNote } from '../components/scan/ScanSession.tsx';
+import { emptyOriginReview } from '../lib/scan/origin-review.ts';
 import { emptySourceRegistration } from '../lib/scan/source-registration.ts';
 
 const config = { startRow: 1, columns: { refdes: 1, x: 2, y: 3 }, module: 'FICTIONAL', side: 'Top', units: 'mm', rotationDirection: 'ccw', decimalSeparator: '.', pairSeparator: ',' };
@@ -169,4 +170,31 @@ test('placement invalidation preserves the project note while dropping exact-row
   assert.deepEqual(retainSessionNote({ 'row:1': 'Old row only.' }), {});
   assert.deepEqual(retainSessionNote({ session: '' }), { session: '' });
   assert.equal(existing['row:1'], 'Only this previous row.');
+});
+
+
+test('generated candidate bytes and explicit snapshots stay separate from original and Eagle-returned archives', async () => {
+  const generated = { file: new File([makeArchive({ ...syntheticMembers, 'Fictional/Board/Board.xml': '<FictionalGenerated />' })], 'generated.zip'), selection: syntheticSelection, draft: draft(syntheticSelection) };
+  const saved = await encodeProject({ ...input, generated });
+  const restored = await decodeProject(asFile(saved));
+  assert.deepEqual(Buffer.from(await restored.generated.file.arrayBuffer()), Buffer.from(await generated.file.arrayBuffer()));
+  assert.deepEqual(restored.generated.record.selection, syntheticSelection);
+  assert.deepEqual(Buffer.from(await restored.original.file.arrayBuffer()), archiveBytes);
+  assert.deepEqual(Buffer.from(await restored.returned.file.arrayBuffer()), Buffer.from(await returned.file.arrayBuffer()));
+  assert.equal(restored.record.machineExportAllowed, false);
+  const forged = JSON.parse(await saved.text()); forged.archives.generated.source.sha256 = '0'.repeat(64);
+  await assert.rejects(decodeProject(asFile(forged)), /do not match their hash/);
+  const cached = JSON.parse(await saved.text()); cached.archives.generated.preflight = { machineValidated: true };
+  await assert.rejects(decodeProject(asFile(cached)), /Derived reports cannot be restored/);
+  await assert.rejects(encodeProject({ ...input, original: null, returned: null, generated }), /requires its original/);
+});
+
+
+test('origin decisions retain source-bound evidence without cached geometry or machine authority', async () => {
+  const originReview = { ...emptyOriginReview(), sourceRevision: 'synthetic-v1', reviewer: 'Synthetic developer', decisions: [{ key: 'fictional-origin', digest: 'a'.repeat(64), choice: 'accepted', reviewer: 'Synthetic developer', reviewerRole: 'development-test' }] };
+  const saved = await encodeProject({ ...input, originReview });
+  const reopened = await decodeProject(asFile(saved));
+  assert.deepEqual(reopened.record.originReview, originReview);
+  const bad = JSON.parse(await saved.text()); bad.originReview.derivedBodyCenters = [];
+  await assert.rejects(decodeProject(asFile(bad)), /origin review/);
 });

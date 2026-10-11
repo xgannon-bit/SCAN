@@ -15,7 +15,7 @@ test('real repair screen creates a changed native copy and reopens exact decisio
   await section.getByRole('combobox', { name: 'Job snapshot', exact: true }).selectOption(JSON.stringify({ role: 'main', member: syntheticSelection.jobMember }));
   await section.getByRole('combobox', { name: 'Master snapshot', exact: true }).selectOption('none');
   await section.getByRole('button', { name: 'Capture and verify selection' }).click();
-  await expect(section.getByRole('heading', { name: 'Snapshot integrity verified; native preparation blocked' })).toBeVisible();
+  await expect(section.getByRole('heading', { name: 'Snapshot integrity verified; original baseline preserved' })).toBeVisible();
   await page.getByRole('navigation', { name: 'SCAN screens' }).getByRole('link', { name: 'Repair Review', exact: true }).click();
   await page.getByRole('combobox', { name: 'Placement', exact: true }).selectOption('JobContainer/PartDataList/PartData[1]');
   await page.getByLabel('Exact proposed X literal').fill('18.625');

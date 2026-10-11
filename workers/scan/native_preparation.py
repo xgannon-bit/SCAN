@@ -14,11 +14,12 @@ import re
 from xml.etree import ElementTree as ET
 
 from .accel_ascii import read_accel
-from .disabled_draft import _one, _text, _number, _record, _rectangle, _set, _decimal, _closing_offsets, recipe_digest
+from .disabled_draft import _one, _text, _number, _record, _rectangle, _set, _decimal, recipe_digest
 from .qualification_candidate import _xml, _canonical, _fail
 from .snapshot_capture import CaptureBlocked
 from .native_model_geometry import derive_model_geometry, equivalent_source_geometry
 from .native_window_subset import closed_window_subset
+from .native_record_insertion import collection_layout, append_records, rollback_records
 
 PROFILE = 'job-local-owned-footprint-disabled-2'
 # Observed field names describe the schema contract, never a private job oracle.
@@ -257,7 +258,7 @@ def plan_preparation(job, master, pcb, choices, package_profiles=None):
     if not isinstance(choices, list) or len(choices) > 1000:
         _fail('PREPARATION_SELECTION', 'At most 1000 explicit missing-part/template scopes are supported.')
     for raw, paths in ((job, ('JobContainer/PartDataList',)), (master, ('JobContainer/PartDataList', 'JobContainer/WindowDataList'))):
-        _xml(raw); _closing_offsets(raw, paths)
+        collection_layout(raw, paths)
     j, m, layout = ET.fromstring(job), ET.fromstring(master), read_accel(pcb)
     used = set()
     for root in (j, m):
@@ -313,19 +314,14 @@ def apply_preparation(job, master, pcb, recipe, accepted_digest):
         _fail('PREPARATION_APPROVAL', 'A held or unknown item cannot be approved.')
     output = {}
     for role, raw in (('job', job), ('master', master)):
-        offsets = _closing_offsets(raw, ('JobContainer/PartDataList',) if role == 'job' else ('JobContainer/PartDataList', 'JobContainer/WindowDataList')); inserts = {}
+        inserts = {}
         for item in fresh['items']:
             if item.get('digest') not in accepted:
                 continue
             for change in item['changes']:
                 if change['document'] == role:
-                    inserts.setdefault(offsets[change['container']], []).append(change['afterXml'].encode())
-        current, spans, added = raw, [], 0
-        for point in sorted(inserts):
-            size = sum(map(len, inserts[point])); spans.append((point + added, point + added + size)); added += size
-        for point in sorted(inserts, reverse=True):
-            current = current[:point] + b''.join(inserts[point]) + current[point:]
-        _xml(current)
+                    inserts.setdefault(change['container'], []).append(change['afterXml'].encode())
+        current, edits = append_records(raw, inserts)
         tree = ET.fromstring(current)
         for item in ready.values():
             if item['digest'] not in accepted:
@@ -343,10 +339,7 @@ def apply_preparation(job, master, pcb, recipe, accepted_digest):
                         _text(w, 'ParentWndId') not in {'0', *dep['windowIds']} or
                         (_one(w, 'AlignWndID').text or '') not in {'', *dep['windowIds']} for w in windows):
                     _fail('PREPARATION_CLOSURE', 'New disabled windows or their local links did not survive parsing.')
-        recovered = current
-        for start, end in reversed(spans):
-            recovered = recovered[:start] + recovered[end:]
-        if recovered != raw:
+        if rollback_records(current, edits) != raw:
             _fail('PREPARATION_PRESERVATION', 'Original XML bytes did not survive insertion rollback exactly.')
         output[role] = current
     return output

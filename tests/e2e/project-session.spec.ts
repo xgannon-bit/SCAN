@@ -28,7 +28,7 @@ async function selectArchive(page: Page, bytes: Buffer, returned = false, tempor
   await section.getByRole('combobox', { name: 'Job snapshot', exact: true }).selectOption(jobChoice);
   await section.getByRole('combobox', { name: 'Master snapshot', exact: true }).selectOption(masterChoice);
   await section.getByRole('button', { name: 'Capture and verify selection' }).click();
-  await expect(section.getByRole('heading', { name: 'Snapshot integrity verified; native preparation blocked' })).toBeVisible();
+  await expect(section.getByRole('heading', { name: 'Snapshot integrity verified; original baseline preserved' })).toBeVisible();
   return { jobChoice, masterChoice };
 }
 async function download(page: Page, name: string) {

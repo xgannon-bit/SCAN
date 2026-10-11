@@ -19,7 +19,7 @@ for (const family of ['paired', 'anchored', 'diode', 'three', 'physical', 'therm
   await archive.getByRole('combobox', { name: 'Job snapshot', exact: true }).selectOption(JSON.stringify({ role: 'main', member: syntheticSelection.jobMember }));
   await archive.getByRole('combobox', { name: 'Master snapshot', exact: true }).selectOption(JSON.stringify({ role: 'main', member: syntheticSelection.masterMember }));
   await archive.getByRole('button', { name: 'Capture and verify selection' }).click();
-  await expect(archive.getByRole('heading', { name: 'Snapshot integrity verified; native preparation blocked' })).toBeVisible();
+  await expect(archive.getByRole('heading', { name: 'Snapshot integrity verified; original baseline preserved' })).toBeVisible();
   await page.getByLabel('Source layout (.pcb)').setInputFiles({ name: 'authored.pcb', mimeType: 'text/plain', buffer: Buffer.from(f.pcb) });
   await page.getByRole('button', { name: 'Read source layout', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: '6 source placements' })).toBeVisible();
@@ -73,6 +73,14 @@ with zipfile.ZipFile(sys.argv[1]) as z:
   await page.reload();
   await page.getByLabel('Saved placement review file', { exact: true }).setInputFiles(projectPath);
   await expect(page.getByRole('status').filter({ hasText: 'Project reopened.' })).toBeVisible();
+  const candidatePanel = page.getByRole('region', { name: 'Generated candidate and remaining work', exact: true });
+  await expect(candidatePanel).toContainText('Generated candidate reanalysis complete.');
+  await expect(candidatePanel.getByRole('status')).toContainText('6 intended references');
+  await candidatePanel.getByLabel('Find candidate component', { exact: true }).fill('N1');
+  await candidatePanel.locator('details > summary').filter({ hasText: /^N1 ·/ }).click();
+  await expect(candidatePanel).toContainText('New drafts remain disabled and untaught.');
+  if (thermal) await expect(candidatePanel).toContainText('hidden-joint coverage');
+  if (physical) await expect(candidatePanel).toContainText('have no physical lead in the matched package');
   await expect(region).toContainText('1 reviewed package evidence profiles retained');
   await region.getByRole('button', { name: 'Find supported native preparation', exact: true }).click();
   await expect(region).toContainText('1 additional proposals construct a manufacturer body');
@@ -112,7 +120,7 @@ test('complete disabled part models apply individually and decisions/history reo
   await archive.getByRole('combobox', { name: 'Job snapshot', exact: true }).selectOption(JSON.stringify({ role: 'main', member: syntheticSelection.jobMember }));
   await archive.getByRole('combobox', { name: 'Master snapshot', exact: true }).selectOption(JSON.stringify({ role: 'main', member: syntheticSelection.masterMember }));
   await archive.getByRole('button', { name: 'Capture and verify selection' }).click();
-  await expect(archive.getByRole('heading', { name: 'Snapshot integrity verified; native preparation blocked' })).toBeVisible();
+  await expect(archive.getByRole('heading', { name: 'Snapshot integrity verified; original baseline preserved' })).toBeVisible();
   await page.getByLabel('Source layout (.pcb)').setInputFiles({ name: 'authored.pcb', mimeType: 'text/plain', buffer: Buffer.from(fixture.pcb) });
   await page.getByRole('button', { name: 'Read source layout', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: '3 source placements' })).toBeVisible();
@@ -186,7 +194,7 @@ test('partial window preparation shows exact omissions and exports actual unfini
   await archive.getByRole('combobox', { name: 'Job snapshot', exact: true }).selectOption(JSON.stringify({ role: 'main', member: syntheticSelection.jobMember }));
   await archive.getByRole('combobox', { name: 'Master snapshot', exact: true }).selectOption(JSON.stringify({ role: 'main', member: syntheticSelection.masterMember }));
   await archive.getByRole('button', { name: 'Capture and verify selection' }).click();
-  await expect(archive.getByRole('heading', { name: 'Snapshot integrity verified; native preparation blocked' })).toBeVisible();
+  await expect(archive.getByRole('heading', { name: 'Snapshot integrity verified; original baseline preserved' })).toBeVisible();
   await page.getByLabel('Source layout (.pcb)').setInputFiles({ name: 'authored.pcb', mimeType: 'text/plain', buffer: Buffer.from(fixture.pcb) });
   await page.getByRole('button', { name: 'Read source layout', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: '3 source placements' })).toBeVisible();

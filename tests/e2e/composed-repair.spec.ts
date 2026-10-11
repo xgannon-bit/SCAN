@@ -13,7 +13,7 @@ test('reviewed scalar and disabled part prepare one candidate, rejected change a
   await archive.getByRole('combobox', { name: 'Job root', exact: true }).selectOption(syntheticSelection.root);
   for (const [label, member] of [['Job snapshot', syntheticSelection.jobMember], ['Master snapshot', syntheticSelection.masterMember]]) await archive.getByRole('combobox', { name: label, exact: true }).selectOption(JSON.stringify({ role: 'main', member }));
   await archive.getByRole('button', { name: 'Capture and verify selection' }).click();
-  await expect(archive.getByRole('heading', { name: 'Snapshot integrity verified; native preparation blocked' })).toBeVisible();
+  await expect(archive.getByRole('heading', { name: 'Snapshot integrity verified; original baseline preserved' })).toBeVisible();
   await page.getByLabel('Source layout (.pcb)').setInputFiles({ name: 'fictional.pcb', mimeType: 'text/plain', buffer: Buffer.from(f.pcb) });
   await page.getByRole('button', { name: 'Read source layout', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: '3 source placements' })).toBeVisible();
@@ -84,6 +84,16 @@ with zipfile.ZipFile(sys.argv[1]) as z:
   await page.reload();
   await page.getByLabel('Saved placement review file', { exact: true }).setInputFiles(projectPath);
   await expect(page.getByRole('status').filter({ hasText: 'Project reopened.' })).toBeVisible();
+  const candidatePanel = page.getByRole('region', { name: 'Generated candidate and remaining work', exact: true });
+  await expect(candidatePanel).toContainText('Generated candidate reanalysis complete.');
+  await expect(candidatePanel.getByRole('status')).toContainText('3 intended references');
+  await candidatePanel.getByLabel('Find candidate component', { exact: true }).fill('N1');
+  await candidatePanel.getByText('N1 · module 1 · Prepared draft · machine teaching/qualification needed', { exact: true }).click();
+  await expect(candidatePanel).toContainText('SCAN created the placement, local Master and initial reference geometry.');
+  await candidatePanel.getByLabel('Find candidate component', { exact: true }).fill('T1');
+  await candidatePanel.locator('details > summary').filter({ hasText: /^T1 ·/ }).click();
+  await expect(candidatePanel).toContainText('1 separately accepted scalar trial(s) applied.');
+  await candidatePanel.getByLabel('Find candidate component', { exact: true }).fill('');
   await expect(scalarDecisions.nth(0)).toHaveValue('accepted'); await expect(scalarDecisions.nth(1)).toHaveValue('rejected');
   await expect(page.getByRole('button', { name: 'Generate qualification candidate (1 accepted)' })).toBeDisabled();
   await prep.getByRole('button', { name: 'Find supported native preparation', exact: true }).click();

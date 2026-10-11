@@ -10,7 +10,7 @@ import { useScanSession } from "./ScanSession";
 import { downloadJson } from "@/lib/scan/review-session";
 import type { RepairRequest } from "@/lib/scan/repair-session";
 import { RepairImpact } from "./RepairImpact";
-import { readComposedCandidateWork } from "@/lib/scan/engineering-candidate-work";
+import { readComposedCandidateWork, readGeneratedCandidate } from "@/lib/scan/engineering-candidate-work";
 import { preparationWork, preparationWorkCsv } from "@/lib/scan/preparation-work";
 import { buildOfflineReviewEvidence } from "@/lib/scan/offline-review-evidence";
 import { compositionDecisionContext, preparationNeedsRecompute } from "@/lib/scan/composition-context";
@@ -112,13 +112,14 @@ export function RepairReview() {
       const revision = { id, recordedAt: new Date().toISOString(), sourceSha256: request.source.archiveSha256, packageSha256, candidateSha256, request,
         ...(preparationAccepted.length ? { composition: { review: structuredClone(preparation.review!), reviewer: preparation.reviewer, accepted: preparationAccepted, ...(preparation.packageProfiles?.length ? { packageProfiles: structuredClone(preparation.packageProfiles) } : {}) } } : {}) };
       const updatedRepair = { ...repair, history: [...repair.history, revision] };
-      const project = await session.buildProjectBlob(updatedRepair);
+      const candidate = await readGeneratedCandidate(blob, candidateSha256, selection!);
+      const project = await session.buildProjectBlob(updatedRepair, preparation, { file: candidate.file, selection: candidate.record.selection, draft: candidate.record.draft });
       const crosswalk = buildSourceCrosswalk(session.bom.result, session.result, archiveReview, session.comparisons.entries.map(item => ({ name: item.file.name, result: item.result })), session.layout.result);
       const json = (value: unknown) => new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
       const reports: { name: string; blob: Blob }[] = [{ name: "baseline-offline-review.json", blob: json(await buildOfflineReviewEvidence(session)) }];
       if (preparationAccepted.length) {
         const actual = await readComposedCandidateWork(blob, candidateSha256, request.source.archiveSha256, preparationAccepted);
-        const work = { ...preparationWork(actual.accounting, actual.items, preparationAccepted, session.bom.result, archiveReview, actual.bindingWork, actual.queue), candidateSha256, packageSha256 };
+        const work = { ...preparationWork(actual.accounting, actual.items, preparationAccepted, session.bom.result, archiveReview, actual.bindingWork, actual.queue, session.layout.result), candidateSha256, packageSha256 };
         reports.push({ name: "component-by-component-Eagle-work.json", blob: json(work) }, { name: "component-by-component-Eagle-work.csv", blob: new Blob([preparationWorkCsv(work)]) });
       }
       const bundle = await evaluationBundle([{ name: "engineering-QUALIFICATION-ONLY.zip", blob }, { name: "SCAN.scan-project.json", blob: project }, ...reports, { name: "source-reconciliation.json", blob: json({ bom: session.bom.result, crosswalk }) }, { name: "source-geometry-evidence.json", blob: json({ layout: session.layout.result, gerber: session.gerber.result, alignment: session.gerber.alignment }) }, { name: "OPEN_FIRST.txt", blob: new Blob(["QUALIFICATION ONLY. Open SCAN.scan-project.json in SCAN to resume sources, decisions and history. Extract engineering-QUALIFICATION-ONLY.zip separately and read START_HERE.txt before any Eagle evaluation. Source reconciliation and geometry evidence describe the original baseline; candidate-specific native and component work are recomputed inside the engineering package. Accepted scalar trials are recorded with exact identities and before/after fields in applied_changes.json; when preparations are included, composed-qualification-receipt.json records both reviewed sets. Component work identifies applied scalar trials and the unresolved binding, dependent-window and position-retention checks; no inspection repair is established. Temp/backup snapshots preserve the original state: do not substitute them during testing. No machine validation or production release is granted."]) }]);
@@ -127,6 +128,7 @@ export function RepairReview() {
       const url = URL.createObjectURL(bundle); const anchor = document.createElement("a");
       anchor.href = url; anchor.download = `SCAN-QUALIFICATION-ONLY-${id.slice(0, 8)}.zip`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 2000);
       setRepair(old => ({ ...old, history: [...old.history, revision] }));
+      void session.generatedArchive.restoreArchive(candidate, new AbortController().signal);
       setMessage(`${accepted} accepted scalar change(s) and ${preparationAccepted.length} accepted disabled preparations packaged in one complete native copy. Generated package hash verified; browser download requested. The project retains both reviewed sets and this combined revision. Binding, inspection repair and Eagle compatibility remain unverified.`);
       setAck(false);
     } catch (error) { setMessage(error instanceof Error ? error.message : "Export failed."); }
@@ -137,7 +139,7 @@ export function RepairReview() {
     <h2>Repair Review</h2><p>Review local placement experiments against the selected source. Every export is <strong>QUALIFICATION ONLY</strong>. Original files, shared Masters, libraries and machine folders are not edited. Native binding changes are held pending qualified ownership and semantics.</p>
     {!preflight ? <p><Link href="/intake#archive-intake">Select a complete job ZIP and run preflight</Link> to start. Pre-arrival placement/Gerber review can continue without it.</p> : <p>Baseline: {preflight.selection.job.role} · {preflight.selection.job.member}<br />Source SHA-256: <code>{preflight.source.sha256}</code></p>}
     {readOnly && preflight && <p role="status">This baseline is available for analysis. The qualification writer supports explicitly selected main snapshots only; it will not switch from Temp/backup automatically.</p>}
-    <fieldset disabled={working || readOnly}><legend>Prepare a local qualification proposal</legend>
+    <fieldset disabled={working || session.candidateWorkBusy || session.generatedArchive.archiveBusy || readOnly}><legend>Prepare a local qualification proposal</legend>
       <label className="scan-field">Placement<select value={selected} onChange={event => { setSelected(event.target.value); setRetained(""); setAfter(""); }}><option value="">Select native placement</option>{records.map(record => <option key={record.sourcePath} value={record.sourcePath}>{record.rawFields.RefID?.join(" / ")} · module {record.rawFields.ParentId?.join()} · ID {record.rawFields.ID?.join()} · Master {record.rawFields.MasterKey?.join()}</option>)}</select></label>
       <label className="scan-field">Operation<select value={field} onChange={event => { setField(event.target.value); setAfter(""); }}><option value="Roi/cx">Local ROI X trial</option><option value="CenterPosX">Stored placement-center X trial</option><option value="ENABLE">Disable reviewed redundant placement</option></select></label>
       {part && <><p>Exact before: <code>{scalar(field) || "Missing/repeated — held"}</code>. Scope: this placement in module {scalar("ParentId")}; Master {scalar("MasterKey")} is preserved.</p><details><summary>Native literals and comparison evidence</summary><pre>{JSON.stringify(part.rawFields, null, 2)}</pre><p>Native frame and units are unqualified. CAD/Gerber registration does not qualify native placement or Master-local coordinates.</p>{peers.map(peer => <div key={peer.sourcePath}><strong>Same module/reference: {peer.sourcePath}</strong><pre>{JSON.stringify(Object.fromEntries(Object.keys({ ...part.rawFields, ...peer.rawFields }).filter(key => JSON.stringify(part.rawFields[key]) !== JSON.stringify(peer.rawFields[key])).map(key => [key, { selected: part.rawFields[key], peer: peer.rawFields[key] }])), null, 2)}</pre></div>)}</details></>}

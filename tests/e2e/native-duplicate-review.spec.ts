@@ -15,7 +15,7 @@ async function load(page: Page, bytes: Buffer) {
   await section.getByRole('combobox', { name: 'Job root', exact: true }).selectOption(syntheticSelection.root);
   for (const [name, member] of [['Job snapshot', syntheticSelection.jobMember], ['Master snapshot', syntheticSelection.masterMember]]) await section.getByRole('combobox', { name, exact: true }).selectOption(JSON.stringify({ role: 'main', member }));
   await section.getByRole('button', { name: 'Capture and verify selection' }).click();
-  await expect(section.getByRole('heading', { name: 'Snapshot integrity verified; native preparation blocked' })).toBeVisible();
+  await expect(section.getByRole('heading', { name: 'Snapshot integrity verified; original baseline preserved' })).toBeVisible();
   await page.getByRole('navigation', { name: 'SCAN screens' }).getByRole('link', { name: 'Repair Review', exact: true }).click();
 }
 

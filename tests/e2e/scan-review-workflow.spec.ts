@@ -94,7 +94,7 @@ test('archive selection is explicit, survives navigation and downloads the exact
   await expect(page.getByRole('combobox', { name: 'Job snapshot', exact: true })).toHaveValue(job);
   await page.getByRole('combobox', { name: 'Master snapshot', exact: true }).selectOption(master);
   await page.getByRole('button', { name: 'Capture and verify selection' }).click();
-  await expect(page.getByRole('heading', { name: 'Snapshot integrity verified; native preparation blocked' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Snapshot integrity verified; original baseline preserved' })).toBeVisible();
   const review = JSON.parse((await download(page, 'Save archive report (JSON)')).toString());
   expect(review.preflight.selection.job.role).toBe('temp');
   expect(review.preflight.selection.master.role).toBe('temp');
@@ -112,7 +112,7 @@ test('archive selection is explicit, survives navigation and downloads the exact
   await page.getByRole('combobox', { name: 'Master snapshot', exact: true }).selectOption('none');
   await expect(page.getByRole('button', { name: 'Save source snapshot' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Capture and verify selection' }).click();
-  await expect(page.getByRole('heading', { name: 'Snapshot integrity verified; native preparation blocked' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Snapshot integrity verified; original baseline preserved' })).toBeVisible();
   const noMaster = JSON.parse((await download(page, 'Save archive report (JSON)')).toString());
   expect(noMaster.preflight.selection.master).toBeNull();
   expect(noMaster.preflight.holds.some((hold: { code: string }) => hold.code === 'MASTER_NOT_SELECTED')).toBe(true);

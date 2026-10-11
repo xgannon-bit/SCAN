@@ -16,7 +16,7 @@ async function archive(page: Page, bytes: Buffer, returned = false, role = 'main
   await section.getByRole('combobox', { name: 'Job snapshot', exact: true }).selectOption(JSON.stringify({ role, member }));
   await section.getByRole('combobox', { name: 'Master snapshot', exact: true }).selectOption(JSON.stringify({ role: 'main', member: syntheticSelection.masterMember }));
   await section.getByRole('button', { name: 'Capture and verify selection' }).click();
-  await expect(section.getByRole('heading', { name: 'Snapshot integrity verified; native preparation blocked' })).toBeVisible();
+  await expect(section.getByRole('heading', { name: 'Snapshot integrity verified; original baseline preserved' })).toBeVisible();
   return section;
 }
 async function download(page: Page, name: string) {

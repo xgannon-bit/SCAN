@@ -1,3 +1,4 @@
+import { validateOriginReview, type OriginReviewSession } from "./origin-review";
 import { validateSourceRegistrationSession, type SourceRegistrationSession } from "./source-registration";
 import type { ComparisonPlacement } from "../../components/scan/ComparisonSession";
 import { validateBomConfig, type BomConfig } from "./bom-types";
@@ -7,7 +8,7 @@ import { validateNativePreparationSession, type NativePreparationSession } from 
 import type { ArchiveInventory, ArchiveReview, ArchiveSelection, SnapshotRole } from "./archive-types";
 import { decodeReview, encodeGerberDraft, encodeReview, validateReviewSession, type GerberDraft, type RestoredGerber, type ReviewNotes, type ReviewSessionFile } from "./review-session";
 
-// Includes two 100 MB archives, two 8 MB sources, bounded notes and JSON overhead.
+// Each archive is bounded to 100 MB; the complete encoded project stays below 300 MB.
 export const PROJECT_MAX_BYTES = 300_000_000;
 export const ARCHIVE_MAX_BYTES = 100_000_000;
 const CHUNK_BYTES = 3 * 32768;
@@ -33,8 +34,8 @@ export function retainProjectEvidence(evidence: ProjectEvidence, sourceHashes: S
 export type ProjectSessionFile = {
   artifactType: "scan.project-session"; schemaVersion: "1";
   placement: ReviewSessionFile | null; gerber: GerberDraft | null;
-  archives: { original: ProjectArchive | null; returned: ProjectArchive | null };
-  notes: ReviewNotes; machineVersion: string; evidence?: ProjectEvidence; repair?: RepairSession; nativePreparation?: NativePreparationSession; sourceRegistration?: SourceRegistrationSession;
+  archives: { original: ProjectArchive | null; returned: ProjectArchive | null; generated?: ProjectArchive | null };
+  notes: ReviewNotes; machineVersion: string; evidence?: ProjectEvidence; repair?: RepairSession; nativePreparation?: NativePreparationSession; sourceRegistration?: SourceRegistrationSession; originReview?: OriginReviewSession;
   layout?: { source: EmbeddedSource; checked: boolean };
   comparisons?: ReviewSessionFile[];
   bom?: { source: EmbeddedSource; config: BomConfig; sheet: number; delimiter: string; checked: boolean };
@@ -50,7 +51,8 @@ export type ProjectInput = {
   gerber: { file: File; settings: Parameters<typeof encodeGerberDraft>[1] } | null;
   original: { file: File; selection: ArchiveSelection | null; draft: ArchiveDraft } | null;
   returned: { file: File; selection: ArchiveSelection | null; draft: ArchiveDraft } | null;
-  notes: ReviewNotes; machineVersion: string; evidence?: ProjectEvidence; repair?: RepairSession; nativePreparation?: NativePreparationSession; sourceRegistration?: SourceRegistrationSession;
+  generated?: { file: File; selection: ArchiveSelection | null; draft: ArchiveDraft } | null;
+  notes: ReviewNotes; machineVersion: string; evidence?: ProjectEvidence; repair?: RepairSession; nativePreparation?: NativePreparationSession; sourceRegistration?: SourceRegistrationSession; originReview?: OriginReviewSession;
 };
 export type RestoredProject = {
   record: ProjectSessionFile;
@@ -60,7 +62,7 @@ export type RestoredProject = {
   attachments?: { role: "BOM" | "evidence"; file: File }[];
   placement: { record: ReviewSessionFile; source: File } | null;
   gerber?: RestoredGerber;
-  original: RestoredArchive | null; returned: RestoredArchive | null;
+  original: RestoredArchive | null; returned: RestoredArchive | null; generated?: RestoredArchive | null;
 };
 
 function object(value: unknown): Record<string, unknown> {
@@ -140,7 +142,7 @@ function validateEvidence(value: unknown, sources: Set<string>) {
 }
 export function validateProjectSession(value: unknown): ProjectSessionFile {
   const project = object(value);
-  exact(project, ["artifactType", "schemaVersion", "placement", "gerber", "archives", "notes", "machineVersion", "machineExportAllowed", ...(Object.hasOwn(project, "evidence") ? ["evidence"] : []), ...(Object.hasOwn(project, "repair") ? ["repair"] : []), ...(Object.hasOwn(project, "nativePreparation") ? ["nativePreparation"] : []), ...(Object.hasOwn(project, "sourceRegistration") ? ["sourceRegistration"] : []), ...(Object.hasOwn(project, "attachments") ? ["attachments"] : []), ...(Object.hasOwn(project, "layout") ? ["layout"] : []), ...(Object.hasOwn(project, "bom") ? ["bom"] : []), ...(Object.hasOwn(project, "comparisons") ? ["comparisons"] : [])]);
+  exact(project, ["artifactType", "schemaVersion", "placement", "gerber", "archives", "notes", "machineVersion", "machineExportAllowed", ...(Object.hasOwn(project, "evidence") ? ["evidence"] : []), ...(Object.hasOwn(project, "repair") ? ["repair"] : []), ...(Object.hasOwn(project, "nativePreparation") ? ["nativePreparation"] : []), ...(Object.hasOwn(project, "sourceRegistration") ? ["sourceRegistration"] : []), ...(Object.hasOwn(project, "originReview") ? ["originReview"] : []), ...(Object.hasOwn(project, "attachments") ? ["attachments"] : []), ...(Object.hasOwn(project, "layout") ? ["layout"] : []), ...(Object.hasOwn(project, "bom") ? ["bom"] : []), ...(Object.hasOwn(project, "comparisons") ? ["comparisons"] : [])]);
   if (project.artifactType !== "scan.project-session" || project.schemaVersion !== "1" || project.machineExportAllowed !== false || !text(project.machineVersion, 256)) throw new Error("Unsupported project version or capability flags.");
   validateNotes(project.notes);
   const sources = new Set<string>();
@@ -149,8 +151,8 @@ export function validateProjectSession(value: unknown): ProjectSessionFile {
     if (JSON.stringify(Object.entries(placement.notes).sort()) !== JSON.stringify(Object.entries(project.notes as ReviewNotes).sort())) throw new Error("Project and placement notes differ.");
   }
   if (project.gerber !== null) sources.add(validateGerber(project.gerber).source.sha256);
-  const archives = object(project.archives); exact(archives, ["original", "returned"]);
-  for (const saved of [archives.original, archives.returned]) if (saved !== null) sources.add(validateArchive(saved).source.sha256);
+  const archives = object(project.archives); exact(archives, ["original", "returned", ...(Object.hasOwn(archives, "generated") ? ["generated"] : [])]);
+  for (const saved of [archives.original, archives.returned, archives.generated]) if (saved != null) sources.add(validateArchive(saved).source.sha256);
   if (Object.hasOwn(project, "layout")) {
     const layout = object(project.layout); exact(layout, ["source", "checked"]);
     sources.add(validateSource(layout.source, /\.pcb$/i, 8_000_000).sha256);
@@ -173,10 +175,11 @@ export function validateProjectSession(value: unknown): ProjectSessionFile {
       sources.add(validateSource(item.source, /./, 8_000_000).sha256);
     }
   }
-  if (!sources.size || (archives.returned !== null && archives.original === null)) throw new Error("A project needs a source; a returned comparison requires its original archive.");
+  if (!sources.size || ((archives.returned !== null || archives.generated != null) && archives.original === null)) throw new Error("A project needs a source; a returned comparison requires its original archive.");
   if (Object.hasOwn(project, "evidence")) validateEvidence(project.evidence, sources);
   if (Object.hasOwn(project, "repair")) validateRepairSession(project.repair);
   if (Object.hasOwn(project, "sourceRegistration")) validateSourceRegistrationSession(project.sourceRegistration);
+  if (Object.hasOwn(project, "originReview")) validateOriginReview(project.originReview);
   if (Object.hasOwn(project, "nativePreparation")) validateNativePreparationSession(project.nativePreparation);
   return value as ProjectSessionFile;
 }
@@ -213,21 +216,21 @@ export async function encodeProject(input: ProjectInput): Promise<Blob> {
   // Process sources sequentially to bound peak encoding memory.
   const placement = input.placement ? await encodeReview(input.placement.file, { ...input.placement.settings, notes: input.notes }) : null;
   const gerber = input.gerber ? await encodeGerberDraft(input.gerber.file, input.gerber.settings) : null;
-  const original = await archive(input.original); const returned = await archive(input.returned);
+  const original = await archive(input.original); const returned = await archive(input.returned); const generated = await archive(input.generated ?? null);
   const layout = input.layout ? { source: await encodeSource(input.layout.file, 8_000_000), checked: input.layout.checked } : undefined;
   const comparisons = [];
   for (const item of input.comparisons ?? []) comparisons.push(await encodeReview(item.file, { config: item.config, sheetIndex: item.sheetIndex, delimiter: item.delimiter, validated: !!item.result, selectedRow: null, notes: {} }));
   const bom = input.bom ? { source: await encodeSource(input.bom.file, 8_000_000), config: input.bom.config, sheet: input.bom.sheet, delimiter: input.bom.delimiter, checked: input.bom.checked } : undefined;
   const attachments = [];
   for (const item of input.attachments ?? []) attachments.push({ role: item.role, source: await encodeSource(item.file, 8_000_000) });
-  const record = validateProjectSession({ artifactType: "scan.project-session", schemaVersion: "1", placement, gerber, archives: { original, returned }, notes: input.notes, machineVersion: input.machineVersion, ...(input.evidence ? { evidence: input.evidence } : {}), ...(input.repair ? { repair: input.repair } : {}), ...(input.nativePreparation ? { nativePreparation: input.nativePreparation } : {}), ...(input.sourceRegistration ? { sourceRegistration: input.sourceRegistration } : {}), ...(attachments.length ? { attachments } : {}), ...(layout ? { layout } : {}), ...(bom ? { bom } : {}), ...(comparisons.length ? { comparisons } : {}), machineExportAllowed: false });
+  const record = validateProjectSession({ artifactType: "scan.project-session", schemaVersion: "1", placement, gerber, archives: { original, returned, ...(generated ? { generated } : {}) }, notes: input.notes, machineVersion: input.machineVersion, ...(input.evidence ? { evidence: input.evidence } : {}), ...(input.repair ? { repair: input.repair } : {}), ...(input.nativePreparation ? { nativePreparation: input.nativePreparation } : {}), ...(input.sourceRegistration ? { sourceRegistration: input.sourceRegistration } : {}), ...(input.originReview ? { originReview: input.originReview } : {}), ...(attachments.length ? { attachments } : {}), ...(layout ? { layout } : {}), ...(bom ? { bom } : {}), ...(comparisons.length ? { comparisons } : {}), machineExportAllowed: false });
   // Separate Blob parts avoid expanding both large base64 strings in one stringify.
   function archiveParts(value: ProjectArchive | null): BlobPart[] {
     if (!value) return ["null"];
     const { base64, ...metadata } = value.source;
     return ['{"source":', JSON.stringify(metadata).slice(0, -1), ',"base64":"', base64, '"},"selection":', JSON.stringify(value.selection), ',"draft":', JSON.stringify(value.draft), '}'];
   }
-  const blob = new Blob(['{"artifactType":"scan.project-session","schemaVersion":"1","placement":', JSON.stringify(record.placement), ',"gerber":', JSON.stringify(record.gerber), ',"archives":{"original":', ...archiveParts(original), ',"returned":', ...archiveParts(returned), '},"notes":', JSON.stringify(record.notes), ',"machineVersion":', JSON.stringify(record.machineVersion), ...(record.evidence ? [',"evidence":', JSON.stringify(record.evidence)] : []), ...(record.repair ? [',"repair":', JSON.stringify(record.repair)] : []), ...(record.nativePreparation ? [',"nativePreparation":', JSON.stringify(record.nativePreparation)] : []), ...(record.sourceRegistration ? [',"sourceRegistration":', JSON.stringify(record.sourceRegistration)] : []), ...(record.attachments ? [',"attachments":', JSON.stringify(record.attachments)] : []), ...(record.layout ? [',"layout":', JSON.stringify(record.layout)] : []), ...(record.bom ? [',"bom":', JSON.stringify(record.bom)] : []), ...(record.comparisons ? [',"comparisons":', JSON.stringify(record.comparisons)] : []), ',"machineExportAllowed":false}'], { type: "application/json" });
+  const blob = new Blob(['{"artifactType":"scan.project-session","schemaVersion":"1","placement":', JSON.stringify(record.placement), ',"gerber":', JSON.stringify(record.gerber), ',"archives":{"original":', ...archiveParts(original), ',"returned":', ...archiveParts(returned), ...(generated ? [',"generated":', ...archiveParts(generated)] : []), '},"notes":', JSON.stringify(record.notes), ',"machineVersion":', JSON.stringify(record.machineVersion), ...(record.evidence ? [',"evidence":', JSON.stringify(record.evidence)] : []), ...(record.repair ? [',"repair":', JSON.stringify(record.repair)] : []), ...(record.nativePreparation ? [',"nativePreparation":', JSON.stringify(record.nativePreparation)] : []), ...(record.sourceRegistration ? [',"sourceRegistration":', JSON.stringify(record.sourceRegistration)] : []), ...(record.originReview ? [',"originReview":', JSON.stringify(record.originReview)] : []), ...(record.attachments ? [',"attachments":', JSON.stringify(record.attachments)] : []), ...(record.layout ? [',"layout":', JSON.stringify(record.layout)] : []), ...(record.bom ? [',"bom":', JSON.stringify(record.bom)] : []), ...(record.comparisons ? [',"comparisons":', JSON.stringify(record.comparisons)] : []), ',"machineExportAllowed":false}'], { type: "application/json" });
   if (blob.size > PROJECT_MAX_BYTES) throw new Error("Project exceeds the 300 MB save limit. Shorten annotations and try again.");
   return blob;
 }
@@ -245,13 +248,14 @@ export async function decodeProject(file: File): Promise<RestoredProject> {
   const gerber = record.gerber ? { draft: record.gerber, file: await decodeSource(record.gerber.source) } : undefined;
   const original = record.archives.original ? { record: record.archives.original, file: await decodeSource(record.archives.original.source) } : null;
   const returned = record.archives.returned ? { record: record.archives.returned, file: await decodeSource(record.archives.returned.source) } : null;
+  const generated = record.archives.generated ? { record: record.archives.generated, file: await decodeSource(record.archives.generated.source) } : null;
   const attachments = [];
   for (const item of record.attachments ?? []) attachments.push({ role: item.role, file: await decodeSource(item.source) });
   const layout = record.layout ? { file: await decodeSource(record.layout.source), checked: record.layout.checked } : undefined;
   const bom = record.bom ? { file: await decodeSource(record.bom.source), config: record.bom.config, sheet: record.bom.sheet, delimiter: record.bom.delimiter, checked: record.bom.checked } : undefined;
   const comparisons: ComparisonPlacement[] = [];
   for (const item of record.comparisons ?? []) comparisons.push({ file: await decodeSource(item.source), config: item.config, sheetIndex: item.sheetIndex, delimiter: item.delimiter, result: null });
-  return { record, comparisons, ...(layout ? { layout } : {}), ...(bom ? { bom } : {}), attachments, placement, ...(gerber ? { gerber } : {}), original, returned };
+  return { record, comparisons, ...(layout ? { layout } : {}), ...(bom ? { bom } : {}), attachments, placement, ...(gerber ? { gerber } : {}), original, returned, generated };
 }
 
 export function selectionInInventory(selection: ArchiveSelection, inventory: ArchiveInventory): boolean {
