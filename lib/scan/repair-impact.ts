@@ -1,7 +1,7 @@
 import type { SnapshotPreflight } from "./archive-types";
 
 /** Literal scope only. Runtime propagation and engineering cause stay unknown. */
-export function repairImpact(report: SnapshotPreflight, sourcePath: string, field: string, after: string) {
+export function repairImpact(report: SnapshotPreflight, sourcePath: string, field: string, after: string, afterFields?: Record<string, string>) {
   const record = report.nativeRecords.job?.records.find(r => r.kind === "part-record" && r.sourcePath === sourcePath);
   if (!record) return null;
   const literal = (key: string) => record.rawFields[key]?.length === 1 ? record.rawFields[key][0] : null;
@@ -17,10 +17,14 @@ export function repairImpact(report: SnapshotPreflight, sourcePath: string, fiel
   const validAfter = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(after) && Number.isFinite(Number(after)) && Math.abs(Number(after)) < 1e6;
   const box = x !== null && y !== null && w !== null && h !== null && angle !== null && w > 0 && h > 0 ? { x, y, w, h, angle } : null;
   const beforeNumber = number(field);
+  const coordinates = { [field]: after, ...afterFields };
+  const roiChanges = Object.entries(coordinates).filter(([key]) => ["Roi/cx", "Roi/cy"].includes(key));
+  const roiAfterValid = roiChanges.length > 0 && roiChanges.every(([, value]) => /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(value) && Number.isFinite(Number(value)) && Math.abs(Number(value)) < 1e6);
+  const afterBox = box && roiAfterValid ? { ...box, x: Number(coordinates["Roi/cx"] ?? box.x), y: Number(coordinates["Roi/cy"] ?? box.y) } : null;
   return { sourceSha256: report.source.sha256, snapshotId: report.snapshotId, sourcePath,
     identity: { reference: literal("RefID"), module: literal("ParentId"), partId: literal("ID"), masterKey: literal("MasterKey") },
-    exactWrite: `${sourcePath}/${field}`, before: literal(field), after, deltaLiteralUnits: validAfter && beforeNumber !== null ? Number(after) - beforeNumber : null,
-    beforeBox: box, afterBox: field === "Roi/cx" && box && validAfter ? { ...box, x: Number(after) } : null,
+    exactWrite: `${sourcePath}/${field}`, exactWrites: Object.keys(coordinates).map(key => `${sourcePath}/${key}`), before: literal(field), after, deltaLiteralUnits: validAfter && beforeNumber !== null ? Number(after) - beforeNumber : null,
+    beforeBox: box, afterBox, deltaXY: box && afterBox ? { x: afterBox.x - box.x, y: afterBox.y - box.y } : null,
     classification: field === "ENABLE" ? "reviewed placement suppression experiment" : "isolated native scalar geometry experiment",
     cause: "not-established-by-numeric-difference", frame: "native stored placement ROI; units and runtime propagation unqualified",
     masterMatch: scope?.masterMatchState ?? "unavailable", masterPaths: scope?.masterPartSourcePaths ?? [],
@@ -29,8 +33,10 @@ export function repairImpact(report: SnapshotPreflight, sourcePath: string, fiel
       align: w.rawFields.AlignWndID, geometry: Object.fromEntries(Object.entries(w.rawFields).filter(([k]) => k.startsWith("RelRoi/"))), algorithmIds: w.algorithmIds })),
     bindingObservations: linked, bindingInventoryComplete: binding?.literalObservationsComplete === true,
     preservedBindingFields: Object.fromEntries(Object.entries(record.rawFields).filter(([key]) => /^(WND_PAD|ListGer|FovList|SubFovNum|FovOPT)/.test(key))),
+    fovAssignment: report.nativeFovAssignments?.assignments.find(a => a.sourcePath === sourcePath)?.assignmentState ?? "not-observed",
+    fovCoverage: "unverified" as const,
     unresolved: ["Physical cause and intended datum need independent evidence; neither residual nor visual appearance establishes a defect.",
-      "Only this scalar is written. Stored center/CAD, Master windows, algorithms, binding and FOV fields remain byte-preserved.",
+      "Only the listed reviewed scalar fields are written. Other stored center/CAD fields, Master windows, algorithms, binding and FOV fields remain byte-preserved.",
       "If Eagle propagates placement geometry to dependent windows, their physical behavior can change despite unchanged window bytes; verify all listed windows and bindings.",
       "Native runtime coordinates, binding ownership, teaching and Eagle open/save/reopen remain unqualified."],
     machineQualified: false as const, inspectionRepairEstablished: false as const };

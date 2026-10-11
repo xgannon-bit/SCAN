@@ -1,5 +1,6 @@
 """Exact literal reference evidence, separate from unqualified native semantics."""
 import json
+from .native_records import observed_document
 
 RELATIONS = (
     ('job-part-module', 'job', 'part-record', ('ParentId',), 'job', 'module-record', ('ID',)),
@@ -21,7 +22,7 @@ def report_literal_dependencies(documents):
     for name, sd, sk, sf, td, tk, tf in RELATIONS:
         relation = {'id': name, 'source': {'document': sd, 'kind': sk, 'fields': list(sf)}, 'target': {'document': td, 'kind': tk, 'fields': list(tf)}, 'status': 'unavailable', 'counts': None, 'examples': [], 'omittedExampleCount': 0}
         relations.append(relation)
-        if any(documents.get(d, {}).get('status') != 'recorded' or documents.get(d, {}).get('readerProfile') != 'jobcontainer-10.2-observed-readonly-1' for d in (sd, td)):
+        if any(not observed_document(documents.get(d)) for d in (sd, td)):
             relation['reason'] = 'Required selected document has no supported literal record inventory'
             continue
         index = {}; unusable_targets = 0

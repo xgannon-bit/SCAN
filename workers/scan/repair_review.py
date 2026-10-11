@@ -12,7 +12,7 @@ from pathlib import Path
 import subprocess
 import zipfile
 
-from .qualification_candidate import _request, _patch_xml, proposal_digest, create_qualification_candidate
+from .qualification_candidate import _request, _patch_xml, proposal_digest, create_qualification_candidate, verify_guarded_master
 from .snapshot_capture import CaptureBlocked
 
 
@@ -22,10 +22,16 @@ def review_request(source, review, draft):
     expected = {'archiveSha256': review['preflight']['source']['sha256'],
                 'jobSha256': selected['job']['sha256'], 'root': selected['root'],
                 'jobMember': selected['job']['member'], 'jobRole': selected['job']['role']}
+    guarded = any('beforeRoi' in item for item in request.get('proposals', []))
+    master_keys = {'masterMember', 'masterSha256', 'masterRole'}
+    if guarded or master_keys.intersection(request.get('source', {})):
+        if not selected.get('master') or selected['master']['role'] != 'main':
+            raise CaptureBlocked('MASTER_SELECTION_REQUIRED', 'A guarded placement edit needs an explicitly selected main Master; missing, temporary or backup selections stay held.')
+        expected.update(masterMember=selected['master']['member'], masterSha256=selected['master']['sha256'], masterRole='main')
     if request.get('source') != expected or expected['jobRole'] != 'main':
         raise CaptureBlocked('STALE_SOURCE', 'Proposal must match the currently selected main snapshot and all source hashes. Temp/backup remain read-only.')
     for item in request.get('proposals', []):
-        if item.get('path', '').split(']/')[-1] not in ('Roi/cx', 'CenterPosX', 'ENABLE'):
+        if item.get('path', '').split(']/')[-1] not in ('Roi/cx', 'Roi/cy', 'CenterPosX', 'ENABLE'):
             raise CaptureBlocked('BINDING_HELD', 'Dependent binding writes require qualified ownership and native semantics; retain this proposal as held.')
     # Validate the entire proposal set without publishing or authorizing anything.
     request['acceptances'] = [{'proposalId': p['id'], 'proposalSha256': proposal_digest(request, p),
@@ -33,6 +39,11 @@ def review_request(source, review, draft):
     request = _request(request)
     with zipfile.ZipFile(source) as archive:
         raw = archive.read(expected['jobMember'])
+        if guarded:
+            master = archive.read(expected['masterMember'])
+            if sha256(master).hexdigest() != expected['masterSha256']:
+                raise CaptureBlocked('STALE_MASTER', 'Selected Master bytes differ from the exact reviewed hash.')
+            verify_guarded_master(raw, master, request['proposals'])
     if sha256(raw).hexdigest() != expected['jobSha256']:
         raise CaptureBlocked('STALE_JOB', 'Selected XML differs from the review.')
     _patch_xml(raw, request['proposals'])
@@ -104,7 +115,7 @@ def _software_identity():
     revision = git('rev-parse', 'HEAD')
     status = git('status', '--porcelain', '--untracked-files=normal')
     return {'commit': revision, 'workingTreeModified': bool(status) if status is not None else None,
-            'adapter': 'browser-qualification-1', 'writer': 'qualification-byte-patch-2',
+            'adapter': 'browser-qualification-2', 'writer': 'qualification-byte-patch-3',
             'codeSha256': {name: sha256((root / 'workers' / 'scan' / name).read_bytes()).hexdigest()
                            for name in ('repair_review.py', 'qualification_candidate.py', 'archive_browser_cli.py')}}
 
@@ -113,8 +124,16 @@ def run(source, review, control, layout_path=None):
     try:
         checked = review_request(source, review, control['request'])
         if control['action'] == 'repair-review':
+            expected_job = None
+            if any(value.get('decision') == 'accepted' for value in control['request'].get('acceptances', [])):
+                accepted_request = _request(control['request'])
+                accepted_ids = {d['proposalId'] for d in accepted_request['acceptances'] if d['decision'] == 'accepted'}
+                with zipfile.ZipFile(source) as archive:
+                    original = archive.read(accepted_request['source']['jobMember'])
+                expected_job = sha256(_patch_xml(original, [p for p in accepted_request['proposals'] if p['id'] in accepted_ids])).hexdigest()
             return {'status': 'success', 'artifactType': 'scan.repair-review', 'request': checked,
-                    'machineExportAllowed': False, 'evidenceAuthority': 'operator-declared; not independently qualified by writer'}
+                    'expectedAcceptedJobSha256': expected_job,
+                    'machineExportAllowed': False, 'evidenceAuthority': 'Historical replay or caller-declared support; no automatic diagnosis or physical correctness established.'}
         if control.get('acknowledgement') != 'QUALIFICATION ONLY':
             raise CaptureBlocked('ACKNOWLEDGEMENT_REQUIRED', 'Acknowledge qualification-only export and unresolved binding/inspection behavior.')
         if 'preparation' in control:
@@ -124,7 +143,30 @@ def run(source, review, control, layout_path=None):
         result = create_qualification_candidate(source, Path(source).parent / 'result.scan-qualification.zip', request)
         if result['status'] != 'success':
             return result
-        preflight = review['preflight']
+        baseline = review['preflight']
+        # Re-open the actual complete candidate and rebuild its reports. The
+        # reviewed original remains a separately named baseline, never a stale
+        # candidate work queue after coordinates changed.
+        from .worker_cli import dispatch
+        candidate_path = Path(source).parent / 'repaired-candidate.zip'
+        with zipfile.ZipFile(Path(source).parent / 'result.scan-qualification.zip') as trial:
+            with trial.open('CANDIDATE.zip') as incoming, candidate_path.open('xb') as outgoing:
+                while chunk := incoming.read(1024 * 1024):
+                    outgoing.write(chunk)
+        selection = baseline['selection']
+        selected_master = selection.get('master')
+        snapshot = Path(source).parent / 'repair-candidate.scan-snapshot'
+        capture = dispatch({'protocolVersion': '1', 'action': 'capture', 'source': str(candidate_path), 'destination': str(snapshot),
+            'expectedArchiveSha256': result['candidate']['sha256'], 'selection': {
+                'root': selection['root'], 'jobMember': selection['job']['member'], 'jobRole': 'main',
+                'masterMember': selected_master['member'] if selected_master else None,
+                'masterRole': selected_master['role'] if selected_master else None}})
+        if capture['status'] != 'success':
+            return capture
+        preflight = dispatch({'protocolVersion': '1', 'action': 'inspect-snapshot', 'source': str(snapshot),
+                              'expectedPackageSha256': capture['package_sha256']})
+        if preflight['status'] != 'success':
+            return preflight
         accounting = preflight.get('nativeAccounting', {})
         instructions = ('QUALIFICATION ONLY — NOT MACHINE VALIDATED\n'
             'CANDIDATE.zip is the complete copied native tree. Extract separately; never overwrite the original or a live machine job.\n'
@@ -151,6 +193,15 @@ def run(source, review, control, layout_path=None):
                              'dependencies': 'unqualified', 'intendedGeometry': 'unverified', 'eagleOpenSaveReopen': 'not-performed',
                              'machineIdentity': 'unverified', 'freshBoardOpticalTests': 'not-performed', 'release': 'not-granted'},
                          'native-inspection-work.json': preflight.get('nativeInspectionWork'),
+                         'candidate-native-accounting.json': accounting,
+                         'candidate-literal-dependencies.json': preflight.get('literalDependencies'),
+                         'native-fov-assignments.json': preflight.get('nativeFovAssignments'),
+                         'candidate-analysis.json': {'source': preflight['source'], 'snapshotId': preflight['snapshotId'],
+                             'selection': preflight['selection'], 'qualificationOnly': True,
+                             'derivedFrom': 'fresh-capture-and-reanalysis-of-actual-candidate'},
+                         'baseline/native-inspection-work.json': baseline.get('nativeInspectionWork'),
+                         'baseline/native-accounting.json': baseline.get('nativeAccounting'),
+                         'baseline/native-fov-assignments.json': baseline.get('nativeFovAssignments'),
                          'repair-request.json': request}
             for name, document in documents.items():
                 bundle.writestr(name, json.dumps(document, ensure_ascii=True, indent=2))
@@ -163,7 +214,7 @@ def run(source, review, control, layout_path=None):
                 digest.update(chunk)
         return {'status': 'success', 'artifactType': 'scan.engineering-download', 'machineExportAllowed': False,
                 'qualificationOnly': True, 'sha256': digest.hexdigest(), 'size': output.stat().st_size,
-                'candidateSha256': result['candidate']['sha256'], 'sourceSha256': preflight['source']['sha256']}
+                'candidateSha256': result['candidate']['sha256'], 'sourceSha256': baseline['source']['sha256']}
     except CaptureBlocked as error:
         return {'status': 'blocked', 'code': error.code, 'reason': str(error), 'machineExportAllowed': False}
     except (KeyError, TypeError, ValueError):

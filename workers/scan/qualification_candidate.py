@@ -9,11 +9,17 @@ use an isolated local export directory, never a live machine job directory.
 Request v1 keys: artifactType='scan.qualification-patch-request', schemaVersion='1',
 purpose='qualification-only', source={archiveSha256,jobSha256,root,jobMember,
 jobRole='main'}, targetEagleBuild=str|null, targetMachine=str|null, reviewer=str,
-trialPurpose=str, evidence=[{id,summary,independentSupport:true,references:
+trialPurpose=str, evidence=[{id,summary,independentSupport,references:
 [{sha256,label}]}], proposals=[{id,path,identity:{ID,ParentId,MasterKey,RefID},before,
 after,evidenceIds:[id]}], acceptances=[{proposalId,proposalSha256,decision:
 'accepted'|'pending'|'rejected',reviewer}]. A proposal may also declare
-dependencyProposalIds; every accepted proposal's dependencies must be accepted.
+beforeRoi={cx,cy,w,h,a}; guarded edits also require source masterMember,
+masterSha256 and masterRole='main', a unique plain module and selected Master
+identity. Evidence kind='historical-replay' requires independentSupport=false;
+absent kind or kind='independent-source-support' requires caller-declared true.
+Neither basis establishes automatic diagnosis or physical correctness. Optional
+dependencyProposalIds bind jointly accepted operations; paired X/Y edits require
+reciprocal dependencies. Every accepted proposal's dependencies must be accepted.
 Unreviewed proposals are not applied. proposal_digest binds source, target, reviewer, purpose,
 proposal and its exact evidence. Unknown target identities remain null.
 
@@ -28,6 +34,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from copy import copy
+from decimal import Decimal
 from hashlib import sha256
 import json
 import os
@@ -44,7 +51,7 @@ from .snapshot_capture import CaptureBlocked, SnapshotSelection, _fingerprint, _
 MAX_ARCHIVE = 100_000_000
 MAX_XML = 16_000_000
 MAX_CANDIDATE = 1_020_000_000
-_PATH = re.compile(r'JobContainer/PartDataList/PartData\[([1-9][0-9]{0,3}|10000)\]/(Roi/cx|CenterPosX|ENABLE|WND_PAD|ListGerPadId1|ListGerbPadId_Common1)\Z')
+_PATH = re.compile(r'JobContainer/PartDataList/PartData\[([1-9][0-9]{0,3}|10000)\]/(Roi/cx|Roi/cy|CenterPosX|ENABLE|WND_PAD|ListGerPadId1|ListGerbPadId_Common1)\Z')
 _HASH = re.compile(r'[0-9a-f]{64}\Z')
 _NUMBER = re.compile(r'[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)\Z')
 _REQUEST_KEYS = {'artifactType', 'schemaVersion', 'purpose', 'source', 'targetEagleBuild', 'targetMachine', 'reviewer', 'trialPurpose', 'evidence', 'proposals', 'acceptances'}
@@ -89,9 +96,12 @@ def _request(value):
     if value['artifactType'] != 'scan.qualification-patch-request' or value['schemaVersion'] != '1' or value['purpose'] != 'qualification-only':
         _fail('INVALID_REQUEST', 'Only the explicit qualification-only request is supported.')
     source = value['source']
-    _object(source, {'archiveSha256', 'jobSha256', 'root', 'jobMember', 'jobRole'})
+    master_keys = {'masterMember', 'masterSha256', 'masterRole'}
+    _object(source, {'archiveSha256', 'jobSha256', 'root', 'jobMember', 'jobRole'} | (master_keys if master_keys.intersection(source) else set()))
     if not all(_hash(source[key]) for key in ('archiveSha256', 'jobSha256')) or source['jobRole'] != 'main' or not all(_text(source[key], 512) for key in ('root', 'jobMember')):
         _fail('INVALID_SOURCE', 'Exact archive/job hashes and an explicit main snapshot are required.')
+    if master_keys.intersection(source) and (not _text(source['masterMember'], 512) or not _hash(source['masterSha256']) or source['masterRole'] != 'main'):
+        _fail('INVALID_SOURCE', 'Guarded edits require an exact explicitly selected main Master and its original hash.')
     for key in ('targetEagleBuild', 'targetMachine'):
         if value[key] is not None and not _text(value[key], 256):
             _fail('INVALID_REQUEST', 'Target identities must be recorded text or explicitly null.')
@@ -99,12 +109,15 @@ def _request(value):
         _fail('APPROVAL_REQUIRED', 'An explicit reviewer and isolated trial purpose are required.')
     evidence = value['evidence']
     if not isinstance(evidence, list) or not 1 <= len(evidence) <= 64:
-        _fail('EVIDENCE_REQUIRED', 'Bounded independently supported evidence declarations are required.')
+        _fail('EVIDENCE_REQUIRED', 'Bounded historical-replay or caller-declared source-evidence records are required.')
     evidence_ids = set()
     for item in evidence:
-        _object(item, {'id', 'summary', 'independentSupport', 'references'})
-        if not _text(item['id'], 128) or item['id'] in evidence_ids or not _text(item['summary'], 4000) or item['independentSupport'] is not True:
-            _fail('EVIDENCE_REQUIRED', 'Each unique evidence item needs independent support and a summary.')
+        _object(item, {'id', 'summary', 'independentSupport', 'references'} | ({'kind'} if 'kind' in item else set()))
+        historical = item.get('kind') == 'historical-replay'
+        if ('kind' in item and item['kind'] not in ('historical-replay', 'independent-source-support')) or item['independentSupport'] is not (False if historical else True):
+            _fail('EVIDENCE_REQUIRED', 'Historical replay must explicitly disclaim independent diagnosis; legacy independent support remains a caller declaration.')
+        if not _text(item['id'], 128) or item['id'] in evidence_ids or not _text(item['summary'], 4000):
+            _fail('EVIDENCE_REQUIRED', 'Each unique evidence item needs an exact basis and summary.')
         evidence_ids.add(item['id'])
         refs = item['references']
         if not isinstance(refs, list) or not 1 <= len(refs) <= 16:
@@ -118,7 +131,7 @@ def _request(value):
         _fail('PATCH_SET_REQUIRED', 'Supply between one and 256 explicitly accepted scalar patches; empty/no-op output is not generated.')
     ids, paths = set(), set()
     for patch in proposals:
-        _object(patch, {'id', 'path', 'identity', 'before', 'after', 'evidenceIds'} | ({'dependencyProposalIds'} if 'dependencyProposalIds' in patch else set()))
+        _object(patch, {'id', 'path', 'identity', 'before', 'after', 'evidenceIds'} | {key for key in ('dependencyProposalIds', 'beforeRoi') if key in patch})
         if not _text(patch['id'], 128) or patch['id'] in ids:
             _fail('INVALID_PATCH', 'Proposal IDs must be distinct.')
         ids.add(patch['id'])
@@ -134,8 +147,20 @@ def _request(value):
         field = match[2]
         if field == 'ENABLE' and (patch['before'], patch['after']) != ('True', 'False'):
             _fail('UNSUPPORTED_ENABLE', 'The only allowed qualification ENABLE transition is the exact literal True to False.')
-        if field in ('Roi/cx', 'CenterPosX') and not _NUMBER.fullmatch(patch['after']):
+        if field in ('Roi/cx', 'Roi/cy', 'CenterPosX') and not _NUMBER.fullmatch(patch['after']):
             _fail('INVALID_LITERAL', 'Coordinate replacement text must use bounded plain decimal syntax.')
+        if 'beforeRoi' in patch:
+            if not master_keys.issubset(source):
+                _fail('MASTER_SELECTION_REQUIRED', 'A guarded placement edit requires its explicitly selected main Master member and hash.')
+            _object(patch['beforeRoi'], {'cx', 'cy', 'w', 'h', 'a'})
+            if any(not _text(v) or not _NUMBER.fullmatch(v) for v in patch['beforeRoi'].values()):
+                _fail('INVALID_GEOMETRY_GUARD', 'A placement guard requires five exact plain decimal ROI literals.')
+            if (any(abs(Decimal(v)) >= 1_000_000 for v in patch['beforeRoi'].values())
+                    or any(Decimal(patch['beforeRoi'][key]) <= 0 for key in ('w', 'h'))
+                    or (field.startswith('Roi/') and abs(Decimal(patch['after'])) >= 1_000_000)):
+                _fail('INVALID_GEOMETRY_GUARD', 'Guarded placement geometry requires bounded coordinates and positive width/height.')
+            if field.startswith('Roi/') and patch['beforeRoi'][field.split('/')[1]] != patch['before']:
+                _fail('INVALID_GEOMETRY_GUARD', 'The guarded ROI and edited before value disagree.')
         refs = patch['evidenceIds']
         if not isinstance(refs, list) or not 1 <= len(refs) <= 16 or any(not isinstance(k, str) or k not in evidence_ids for k in refs) or len(set(refs)) != len(refs):
             _fail('EVIDENCE_REQUIRED', 'Every proposal must reference distinct supplied evidence.')
@@ -143,6 +168,12 @@ def _request(value):
         dependencies = patch.get('dependencyProposalIds', [])
         if not isinstance(dependencies, list) or len(dependencies) > 256 or any(not isinstance(k, str) or k not in ids for k in dependencies) or len(set(dependencies)) != len(dependencies):
             _fail('INVALID_DEPENDENCY', 'Proposal dependencies must be distinct IDs within this exact patch set.')
+        if patch['path'].endswith(('/Roi/cx', '/Roi/cy')):
+            peer_axis = '/Roi/cy' if patch['path'].endswith('/Roi/cx') else '/Roi/cx'
+            peer_path = patch['path'].rsplit('/Roi/', 1)[0] + peer_axis
+            peer = next((p for p in proposals if p['path'] == peer_path), None)
+            if peer and (peer['id'] not in dependencies or patch['identity'] != peer['identity'] or patch.get('beforeRoi') != peer.get('beforeRoi')):
+                _fail('COUPLED_ROI_REQUIRED', 'An XY proposal pair must bind reciprocal dependencies, the same stable identity and the same original ROI guard.')
     accepts = value['acceptances']
     if not isinstance(accepts, list) or len(accepts) > len(proposals):
         _fail('APPROVAL_REQUIRED', 'Provide at most one explicit review decision per proposal.')
@@ -164,7 +195,7 @@ def _request(value):
     return value
 
 
-def _xml(raw):
+def _xml(raw, *, supported_versions=('10.2',)):
     """Locate original byte spans through a bounded XML parser, not regex matching."""
     if len(raw) > MAX_XML:
         _fail('XML_LIMIT', 'Selected XML exceeds the qualification byte limit.')
@@ -209,6 +240,8 @@ def _xml(raw):
             part_paths.append(path)
             if len(part_paths) > 10_000:
                 _fail('XML_LIMIT', 'Native part count exceeds the qualification bound.')
+        if path == 'JobContainer/ModuleDataList/ModuleData':
+            path += f'[{ordinal}]'
         if re.fullmatch(r'JobContainer/PartDataList/PartData\[[0-9]+\]/Roi', path) and ordinal > 1:
             ambiguous_ancestors.add(path)
         offset = parser.CurrentByteIndex
@@ -230,7 +263,7 @@ def _xml(raw):
     def end(_name):
         node = stack.pop()
         path = node['path']
-        if path == 'JobContainer/JobXmlVersion' or re.fullmatch(r'JobContainer/PartDataList/PartData\[[0-9]+\]/(?:ID|ParentId|MasterKey|RefID|Roi/cx|CenterPosX|ENABLE|WND_PAD|ListGerPadId1|ListGerbPadId_Common1)', path):
+        if path == 'JobContainer/JobXmlVersion' or re.fullmatch(r'JobContainer/ModuleDataList/ModuleData\[[0-9]+\]/ID|JobContainer/PartDataList/PartData\[[0-9]+\]/(?:ID|ParentId|MasterKey|RefID|Roi/(?:cx|cy|w|h|a)|CenterPosX|ENABLE|WND_PAD|ListGerPadId1|ListGerbPadId_Common1)', path):
             start_at, end_at = node['contentStart'], parser.CurrentByteIndex
             scalar = not node['children'] and not node['selfClosing'] and not node['attributes'] and end_at >= start_at
             data = raw[start_at:end_at] if scalar else b''
@@ -250,13 +283,14 @@ def _xml(raw):
     except expat.ExpatError:
         _fail('XML_INVALID', 'Selected XML is malformed; no candidate was published.')
     version = leaves.get('JobContainer/JobXmlVersion', [])
-    if len(version) != 1 or not version[0]['plain'] or version[0]['literal'] != '10.2':
-        _fail('UNSUPPORTED_SCHEMA', 'One exact JobXmlVersion 10.2 scalar is required; this does not identify an Eagle application build.')
+    if len(version) != 1 or not version[0]['plain'] or version[0]['literal'] not in supported_versions:
+        _fail('UNSUPPORTED_SCHEMA', 'The operation requires one exact supported JobXmlVersion scalar; this does not identify an Eagle application build.')
     return leaves, part_paths, ambiguous_ancestors
 
 
 def _patch_xml(raw, patches):
-    leaves, parts, ambiguous_ancestors = _xml(raw)
+    leaves, parts, ambiguous_ancestors = _xml(raw, supported_versions=('10.1', '10.2'))
+    version = leaves['JobContainer/JobXmlVersion'][0]['literal']
     identities = defaultdict(list)
     identity_literals = {key: defaultdict(set) for key in ('ID', 'ParentId', 'MasterKey')}
     for part in parts:
@@ -270,7 +304,26 @@ def _patch_xml(raw, patches):
     spans = []
     for patch in patches:
         part = patch['path'].split(']/', 1)[0] + ']'
-        if patch['path'].endswith('/Roi/cx') and part + '/Roi' in ambiguous_ancestors:
+        field = patch['path'].split(']/', 1)[1]
+        if version == '10.1' and (field not in ('Roi/cx', 'Roi/cy') or 'beforeRoi' not in patch):
+            _fail('UNSUPPORTED_SCHEMA_OPERATION', 'The 10.1 experimental writer supports guarded placement ROI X/Y only; other operations and unguarded edits remain held.')
+        if 'beforeRoi' in patch:
+            # An attributed/nested identity on another record cannot disappear
+            # from the possible-target set merely because it is not a plain
+            # supported scalar. Refuse that ambiguity without interpreting it.
+            identity_paths = [values for path, values in leaves.items()
+                              if re.fullmatch(r'JobContainer/PartDataList/PartData\[[0-9]+\]/(?:ID|ParentId|MasterKey)', path)]
+            if any(not value['plain'] for values in identity_paths for value in values):
+                _fail('IDENTITY_MISMATCH', 'Guarded placement scope contains an attributed, nested or non-plain identity; uniqueness cannot be established.')
+            module_paths = [values for path, values in leaves.items()
+                            if re.fullmatch(r'JobContainer/ModuleDataList/ModuleData\[[0-9]+\]/ID', path)]
+            if any(not value['plain'] for values in module_paths for value in values):
+                _fail('MODULE_IDENTITY_MISMATCH', 'A non-plain module identity cannot be excluded from the guarded placement scope.')
+            modules = [values for path, values in leaves.items() if re.fullmatch(r'JobContainer/ModuleDataList/ModuleData\[[0-9]+\]/ID', path)
+                       and any(v['literal'] == patch['identity']['ParentId'] for v in values)]
+            if len(modules) != 1 or len(modules[0]) != 1 or not modules[0][0]['plain']:
+                _fail('MODULE_IDENTITY_MISMATCH', 'A guarded edit requires one plain module ID matching the placement ParentId.')
+        if (field.startswith('Roi/') or 'beforeRoi' in patch) and part + '/Roi' in ambiguous_ancestors:
             _fail('AMBIGUOUS_TARGET', 'The selected ROI scalar has repeated owning containers.')
         expected = tuple(patch['identity'][key] for key in ('ID', 'ParentId', 'MasterKey'))
         possible = set.intersection(*(identity_literals[key].get(patch['identity'][key], set()) for key in identity_literals))
@@ -281,6 +334,10 @@ def _patch_xml(raw, patches):
         reference = leaves.get(part + '/RefID', [])
         if len(reference) != 1 or not reference[0]['plain'] or reference[0]['literal'] != patch['identity']['RefID']:
             _fail('IDENTITY_MISMATCH', 'The selected part must have exactly one plain reference designator matching the reviewed identity.')
+        for key, expected_literal in patch.get('beforeRoi', {}).items():
+            guarded = leaves.get(part + '/Roi/' + key, [])
+            if len(guarded) != 1 or not guarded[0]['plain'] or guarded[0]['literal'] != expected_literal:
+                _fail('STALE_GEOMETRY_GUARD', 'The placement ROI axis, size or angle differs from its exact reviewed guard.')
         target = leaves.get(patch['path'], [])
         if len(target) != 1 or not target[0]['plain']:
             _fail('AMBIGUOUS_TARGET', 'A target is missing, repeated, nested, attributed or not plain scalar text.')
@@ -297,7 +354,7 @@ def _patch_xml(raw, patches):
         last = end
     pieces.append(raw[last:])
     changed = b''.join(pieces)
-    after_leaves, after_parts, after_ambiguous = _xml(changed)
+    after_leaves, after_parts, after_ambiguous = _xml(changed, supported_versions=('10.1', '10.2'))
     if parts != after_parts or ambiguous_ancestors != after_ambiguous:
         _fail('INVARIANT_FAILED', 'Native part structure changed during patching.')
     by_path = {patch['path']: patch['after'] for patch in patches}
@@ -310,6 +367,41 @@ def _patch_xml(raw, patches):
     # The only byte construction is unchanged slices plus the exact accepted
     # replacements. No XML serializer can reorder or discard unknown content.
     return changed
+
+
+def reverse_proposals(patches):
+    """Exact rollback guards use the complete accepted after-state, not deltas."""
+    from copy import deepcopy
+    result = deepcopy(patches)
+    by_path = {p['path']: p['after'] for p in patches}
+    for item in result:
+        item['before'], item['after'] = item['after'], item['before']
+        if 'beforeRoi' in item:
+            prefix = item['path'].split(']/', 1)[0] + ']/Roi/'
+            item['beforeRoi'] = {key: by_path.get(prefix + key, value) for key, value in item['beforeRoi'].items()}
+    return result
+
+
+def verify_guarded_master(job, master, patches):
+    """Resolve the selected model independently from PartData ordinal hints.
+
+    Unique literal closure establishes the affected record scope only. Runtime
+    coordinate propagation, window ownership and teaching remain unqualified.
+    """
+    guarded = [patch for patch in patches if 'beforeRoi' in patch]
+    if not guarded:
+        return
+    job_leaves, _, _ = _xml(job, supported_versions=('10.1', '10.2'))
+    master_leaves, master_parts, _ = _xml(master, supported_versions=('10.1', '10.2'))
+    if job_leaves['JobContainer/JobXmlVersion'][0]['literal'] != master_leaves['JobContainer/JobXmlVersion'][0]['literal']:
+        _fail('MASTER_SCHEMA_MISMATCH', 'The guarded placement profile requires matching selected main and Master schema claims.')
+    if any(not value['plain'] for path in master_parts for value in master_leaves.get(path + '/MasterKey', [])):
+        _fail('MASTER_IDENTITY_MISMATCH', 'An attributed, nested or non-plain Master key cannot be excluded from the selected model scope.')
+    for patch in guarded:
+        matches = [master_leaves.get(path + '/MasterKey', []) for path in master_parts
+                   if any(v['literal'] == patch['identity']['MasterKey'] for v in master_leaves.get(path + '/MasterKey', []))]
+        if len(matches) != 1 or len(matches[0]) != 1 or not matches[0][0]['plain']:
+            _fail('MASTER_IDENTITY_MISMATCH', 'The exact selected Master key must resolve to one plain model identity; shared placement use is preserved.')
 
 
 def _check(cancelled):
@@ -371,12 +463,25 @@ def create_qualification_candidate(source_path, destination_path, request, *, ca
                 _fail('SOURCE_CHANGED', 'The source changed while its private copy was captured.')
             limits = IntakeLimits()
             inventory = inventory_zip(frozen, limits)
-            _validate_selection(inventory, SnapshotSelection(expected['root'], expected['jobMember'], 'main'))
+            _validate_selection(inventory, SnapshotSelection(expected['root'], expected['jobMember'], 'main',
+                expected.get('masterMember'), expected.get('masterRole')))
             entries = {entry.path: entry for entry in inventory.entries}
             candidate = stage / 'candidate.zip'
             before_files, after_files, selected_count, total = {}, {}, 0, 0
             with zipfile.ZipFile(frozen) as original, zipfile.ZipFile(candidate, 'x') as output:
                 output.comment = original.comment
+                if any('beforeRoi' in item for item in approved_proposals):
+                    selected_payloads = {}
+                    for role in ('job', 'master'):
+                        selected_name = expected[role + 'Member']
+                        info = next(i for i in original.infolist() if _normalize_member_name(i.filename, limits.max_path_length) == selected_name)
+                        if info.file_size > MAX_XML:
+                            _fail('XML_LIMIT', 'Selected job/Master exceeds the guarded placement XML limit.')
+                        with original.open(info) as incoming:
+                            selected_payloads[role] = incoming.read(MAX_XML + 1)
+                        if len(selected_payloads[role]) > MAX_XML or sha256(selected_payloads[role]).hexdigest() != expected[role + 'Sha256']:
+                            _fail('STALE_JOB' if role == 'job' else 'STALE_MASTER', 'Selected job/Master bytes differ from their exact reviewed hashes.')
+                    verify_guarded_master(selected_payloads['job'], selected_payloads['master'], approved_proposals)
                 for info in original.infolist():
                     _check(cancelled)
                     member = _normalize_member_name(info.filename, limits.max_path_length)
@@ -398,6 +503,8 @@ def create_qualification_candidate(source_path, destination_path, request, *, ca
                             if before_hash != expected['jobSha256']:
                                 _fail('STALE_JOB', 'Selected job bytes differ from the accepted job hash.')
                             changed = _patch_xml(raw, approved_proposals)
+                            if _patch_xml(changed, reverse_proposals(approved_proposals)) != raw:
+                                _fail('ROLLBACK_FAILED', 'Reversing exact accepted leaves did not recover the original selected XML.')
                             output.writestr(copy(info), changed)
                             before_files[info.filename] = {'sha256': before_hash, 'size': len(raw), 'directory': False}
                             after_files[info.filename] = {'sha256': sha256(changed).hexdigest(), 'size': len(changed), 'directory': False}
@@ -422,11 +529,12 @@ def create_qualification_candidate(source_path, destination_path, request, *, ca
                         _fail('INVARIANT_FAILED', 'Candidate payload did not match the verified changed/unchanged bytes.')
             receipt = {
                 'artifactType': 'scan.qualification-trial-receipt', 'schemaVersion': '1', 'status': 'success',
-                'writerVersion': 'qualification-byte-patch-2', 'nativeSchemaClaim': 'JobContainer/10.2',
+                'writerVersion': 'qualification-byte-patch-3', 'nativeSchemaClaim': 'JobContainer/' + _xml(raw, supported_versions=('10.1', '10.2'))[0]['JobContainer/JobXmlVersion'][0]['literal'],
                 'qualificationOnly': True, 'nativeEditsApplied': True, 'machineExportAllowed': False,
                 'nativeSemanticsQualified': False, 'machineCompatibility': None, 'productionRelease': None,
                 'dependencyCompleteness': None,
                 'inspectionRepairEstablished': False,
+                'scalarRollbackRecoversOriginalXml': True,
                 'padBindingQualification': 'unresolved', 'dependentWindowQualification': 'unresolved',
                 'eagleOpenSaveReopen': 'not-performed',
                 'snapshotPolicy': {
@@ -436,7 +544,11 @@ def create_qualification_candidate(source_path, destination_path, request, *, ca
                 },
                 'source': expected, 'targetEagleBuild': request['targetEagleBuild'], 'targetMachine': request['targetMachine'],
                 'targetIdentityVerified': False, 'reviewer': request['reviewer'], 'trialPurpose': request['trialPurpose'],
-                'evidenceInterpretation': 'Caller-asserted independent support; bound mechanically, not interpreted or qualified by this writer.',
+                'evidenceInterpretation': 'Historical replay and caller-declared independent support are distinct evidence bases; neither is an automatic diagnosis or machine qualification.',
+                'proposalCapabilities': [{'proposalId': item['id'],
+                    'basis': 'historical-replay' if any(e.get('kind') == 'historical-replay' for e in request['evidence'] if e['id'] in item['evidenceIds']) else 'caller-declared-independent-support',
+                    'automaticRecommendationEstablished': False, 'physicalCorrectnessEstablished': False}
+                    for item in approved_proposals],
                 'evidence': request['evidence'], 'changes': approved_proposals, 'acceptances': request['acceptances'],
                 'unappliedProposals': [{'id': item['id'], 'decision': decisions.get(item['id'], 'unreviewed'),
                                        'proposalSha256': proposal_digest(request, item)} for item in request['proposals'] if decisions.get(item['id']) != 'accepted'],

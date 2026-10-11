@@ -2,6 +2,14 @@ import type { NativeAccounting } from "./native-accounting";
 import type { NativeInspectionWork } from "./native-inspection-work";
 import type { NativeDuplicateReview } from "./native-duplicate-review";
 export type SnapshotRole = "main" | "temp" | "backup";
+export type NativeFovAssignments = {
+  artifactType: "scan.native-fov-assignments"; schemaVersion: "1"; status: "recorded" | "unavailable";
+  assignments: { sourcePath: string; identity: Record<string, string[] | undefined>; assignmentState: "empty" | "literal-assignment-present" | "unresolved";
+    assignedLiterals: { field: string; value: string }[]; coverage: "unverified"; nativeIdMeaning: "unqualified"; enabledExecution: "unverified" }[];
+  cameraRecords: { sourcePath: string; rawFields: Record<string, string[]> }[];
+  counts?: { placements: number; empty: number; assigned: number; unresolved: number; cameraRecords: number; coverageVerified: 0 } | null;
+  nativeAssignmentWritten: false; coverageQualified: false;
+};
 export type LiteralDependencyReport = {
   artifactType: "scan.native-literal-dependencies"; schemaVersion: "1"; interpretation: "exact-source-string-correspondence-only"; detailLimit?: string;
   relations: { id: string; source: { document: string; kind: string; fields: string[] }; target: { document: string; kind: string; fields: string[] }; status: "checked" | "unavailable"; reason?: string; counts: { checked: number; unique: number; unmatched: number; ambiguous: number; unusableSourceKey: number; unusableTargetKeys: number } | null;
@@ -72,6 +80,7 @@ export type SnapshotPreflight = {
   nativeInspectionWork?: NativeInspectionWork;
   nativeDuplicateReview?: NativeDuplicateReview;
   nativeBindings?: NativeLiteralBindings;
+  nativeFovAssignments?: NativeFovAssignments;
   nativeRecords: Record<string, { status: "recorded" | "blocked" | "unsupported"; reason?: string; readerProfile?: string; schemaVersionClaim?: string; records: { kind: string; sourcePath: string; rawFields: Record<string, string[]> }[]; duplicateScalarFields?: { sourcePath: string; field: string }[]; countsByRecordKind?: Record<string, number> }>;
   xmlEnvelopes: Record<string, { status: "well-formed" | "blocked"; code?: string; reason?: string; rootName?: string; elementCount?: number; versionClaims?: unknown[] }>;
   readiness: { packageComplete: null; offlinePreparationCoverage: null; machineCompatibility: null; opticalTeachingValidation: null; productionRelease: null };

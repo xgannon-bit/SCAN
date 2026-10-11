@@ -9,6 +9,7 @@ from decimal import Decimal, localcontext
 from hashlib import sha256
 import json
 import re
+from .native_records import observed_document
 
 
 PROFILE = 'jobcontainer-10.2-observed-readonly-1'
@@ -87,7 +88,7 @@ def analyze_native(documents, source_context):
         if not isinstance(documents, dict):
             raise ValueError('documents')
         document = documents.get('job')
-        if not isinstance(document, dict) or document.get('status') != 'recorded' or document.get('readerProfile') != PROFILE:
+        if not observed_document(document):
             return _failure('unavailable', 'NATIVE_RECORDS_UNAVAILABLE', 'The selected job has no supported literal record inventory. Population and preparation are unknown.')
         records = document.get('records')
         if not isinstance(records, list):
@@ -128,7 +129,7 @@ def analyze_native(documents, source_context):
             'artifactType': 'scan.native-accounting', 'schemaVersion': '1',
             'analyzerVersion': 'native-literal-accounting-2', 'status': 'recorded',
             'code': 'LITERAL_ACCOUNTING_RECORDED', 'accountingComplete': True,
-            'sourceContext': context, 'readerProfile': PROFILE,
+            'sourceContext': context, 'readerProfile': document['readerProfile'],
             'interpretation': 'Selected-job CAD rows and native part instances; exact source-string correspondence only. This is not qualified population, teaching, geometry or repair eligibility.',
             'enableLiteralInterpretation': 'Histogram values count raw ENABLE scalar occurrences, including repeated values; they are not counts of enabled inspections.',
             'findings': [], 'componentCoverage': [], 'nativeInstances': [], 'coordinateComparisons': [], 'coordinatePatterns': [],

@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 import zipfile
 
-from .qualification_candidate import _patch_xml, _request, _xml
+from .qualification_candidate import _patch_xml, _request, _xml, reverse_proposals
 from .snapshot_capture import CaptureBlocked
 
 
@@ -99,7 +99,7 @@ def compose_preparation(source, layout_path, review, control):
             if info.filename == member:
                 raw = before.read(info)
                 changed = _patch_xml(raw, approved)
-                reverse = [{**item, 'before': item['after'], 'after': item['before']} for item in approved]
+                reverse = reverse_proposals(approved)
                 if _patch_xml(changed, reverse) != raw:
                     raise CaptureBlocked('COMPOSITION_ROLLBACK', 'Scalar rollback did not recover the exact prepared document.')
                 after.writestr(copy(info), changed)

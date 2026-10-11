@@ -5,22 +5,25 @@ import { useScanSession } from "./ScanSession";
 import { candidatePreparationWork, type CandidatePreparationEvidence } from "@/lib/scan/candidate-work";
 import { preparationWorkCsv } from "@/lib/scan/preparation-work";
 import { downloadJson } from "@/lib/scan/review-session";
+import { CandidateRepairPanel } from "./CandidateRepairPanel";
 
 export function CandidateWorkPanel() {
   const session = useScanSession(), generated = session.generatedArchive;
   const original = session.archiveReview, candidate = generated.archiveReview;
   const [work, setWork] = useState<ReturnType<typeof candidatePreparationWork> | null>(null), [error, setError] = useState(""), [busy, setBusy] = useState(false), [filter, setFilter] = useState(""), [state, setState] = useState("");
+  const [repairBusy, setRepairBusy] = useState(false);
+  useEffect(() => { session.setCandidateWorkBusy(busy || repairBusy); return () => session.setCandidateWorkBusy(false); }, [busy, repairBusy, session.setCandidateWorkBusy]);
   const hash = candidate?.preflight.source.sha256;
   const preparation = [...session.nativePreparation.history].reverse().find(h => h.candidateSha256 === hash && h.review.archiveSha256 === original?.preflight.source.sha256);
   const repair = [...session.repair.history].reverse().find(h => h.candidateSha256 === hash && h.sourceSha256 === original?.preflight.source.sha256);
   const authority = useMemo(() => JSON.stringify(preparation ? { accepted: preparation.accepted, packageProfiles: preparation.packageProfiles ?? [], request: repair?.request ?? null } : repair ? { accepted: repair.composition?.accepted ?? [], packageProfiles: repair.composition?.packageProfiles ?? [], request: repair.request } : null), [preparation, repair]);
-  const ready = !session.busy && !session.archiveBusy && !generated.archiveBusy && !session.layout.busy && !!session.layout.result;
+  const ready = !session.busy && !session.archiveBusy && !generated.archiveBusy && !session.layout.busy && !!session.layout.result && (!!preparation || !!repair?.composition?.accepted.length);
   useEffect(() => {
-    const abort = new AbortController(); setWork(null); setError(""); setBusy(false); session.setCandidateWorkBusy(false);
+    const abort = new AbortController(); setWork(null); setError(""); setBusy(false);
     if (!ready || !original || !candidate || !session.archiveFile || !session.selection || !session.layout.file || !session.layout.result) return () => abort.abort();
     const selected = JSON.parse(authority);
     if (!selected) { setError("This generated archive has no matching candidate history for the selected original. Native bytes remain available, but prepared completion is held."); return () => abort.abort(); }
-    setBusy(true); session.setCandidateWorkBusy(true);
+    setBusy(true);
     void (async () => {
       try {
         const form = new FormData(); form.set("file", session.archiveFile!); form.set("layout", session.layout.file!); form.set("action", "draft-review");
@@ -32,9 +35,9 @@ export function CandidateWorkPanel() {
         const rebuilt = candidatePreparationWork(original, candidate, session.bom.result, evidence as CandidatePreparationEvidence, selected.accepted, selected.request, session.layout.result);
         if (!abort.signal.aborted) setWork(rebuilt);
       } catch (failure) { if (!abort.signal.aborted) setError(failure instanceof Error ? failure.message : "Candidate work could not be rebuilt."); }
-      finally { if (!abort.signal.aborted) { setBusy(false); session.setCandidateWorkBusy(false); } }
+      finally { if (!abort.signal.aborted) setBusy(false); }
     })();
-    return () => { abort.abort(); session.setCandidateWorkBusy(false); };
+    return () => abort.abort();
   }, [ready, original, candidate, authority, session.layout.file, session.layout.result, session.bom.result, session.archiveFile, session.selection]);
   if (!generated.archiveFile) return <section className="scan-panel scan-panel-body" id="candidate-work" aria-label="Generated candidate and remaining work"><h2>Generated candidate and remaining work</h2><p>Export accepted preparation or an independently reviewed repair below. SCAN keeps the generated job separate from the original, reparses it and shows what remains for each component.</p></section>;
   async function retry() {
@@ -53,6 +56,7 @@ export function CandidateWorkPanel() {
     {!generated.archiveBusy && !candidate && <Button onClick={() => void retry()}>Retry generated candidate analysis</Button>}
     {busy && <p role="status">Rebuilding preparation evidence against the original and actual candidate records…</p>}
     {error && <p role="alert">{error}</p>}
+    <CandidateRepairPanel onBusyChange={setRepairBusy} />
     {work && <>
       <p role="status">{work.counts.cadReferences} intended references · {work.counts.existingTeachingPreservedReferences} existing reference scopes retained · {work.counts.preparedReferences} prepared drafts ({work.counts.preparedPopulatedSmtIntent} populated SMT intents; {work.rows.filter(r => r.nativeCreation === "prepared-offline" && r.category === "engineering-dnp").length} engineering DNP drafts) · {work.counts.missingPopulatedSmtIntent} populated SMT references held.</p>
       <p>{work.counts.preparedWithPartialWindows} preparations have incomplete window coverage. DNP and hole-bearing work are separate from missing populated SMT. New drafts remain disabled and untaught. Work-order population is unapproved.</p>

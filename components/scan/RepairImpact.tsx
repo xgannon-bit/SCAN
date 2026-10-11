@@ -4,23 +4,25 @@ import { repairImpact } from "@/lib/scan/repair-impact";
 import { downloadJson } from "@/lib/scan/review-session";
 import { Button } from "@/components/ui/button";
 
-export function RepairImpact({ sourcePath, field, after }: { sourcePath: string; field: string; after: string }) {
+export function RepairImpact({ sourcePath, field, after, afterFields }: { sourcePath: string; field: string; after: string; afterFields?: Record<string, string> }) {
   const { archiveReview } = useScanSession();
-  const impact = archiveReview && repairImpact(archiveReview.preflight, sourcePath, field, after);
+  const impact = archiveReview && repairImpact(archiveReview.preflight, sourcePath, field, after, afterFields);
   if (!impact) return null;
   const before = impact.beforeBox, next = impact.afterBox;
   const boxes = before && next ? [before, next] : [];
   const radius = before ? Math.hypot(before.w, before.h) : 1;
   const left = boxes.length ? Math.min(...boxes.map(b => b.x)) - radius : 0;
-  const top = before ? before.y - radius : 0;
+  const top = boxes.length ? Math.min(...boxes.map(b => b.y)) - radius : 0;
   const width = boxes.length ? Math.max(...boxes.map(b => b.x)) + radius - left : 1;
+  const height = boxes.length ? Math.max(...boxes.map(b => b.y)) + radius - top : 1;
   return <section aria-label="Exact repair impact">
     <h4>Before/after and dependent work</h4>
-    <p>{impact.classification}. Native literal delta: {impact.deltaLiteralUnits ?? "unavailable"}. This is a requested displacement, not an independently established registration residual or defect.</p>
-    {!!boxes.length && <><svg role="img" aria-label="Requested native ROI before and after, unqualified frame" viewBox={`${left} ${top} ${width} ${radius * 2}`} width="420" height="220" style={{ maxWidth: "100%", border: "1px solid #80929c" }}>
-      {boxes.map((b, i) => <g key={i} transform={`rotate(${b.angle} ${b.x} ${b.y})`}><title>{i ? "Proposed" : "Original"} stored ROI center ({b.x}, {b.y})</title><rect x={b.x - b.w / 2} y={b.y - b.h / 2} width={b.w} height={b.h} fill="none" stroke={i ? "#f4b942" : "#53c4e8"} strokeDasharray={i ? `${radius / 8} ${radius / 12}` : undefined} strokeWidth={Math.max(width, radius * 2) / 180} /></g>)}
+    <p>{impact.classification}. Native literal delta: {impact.deltaXY ? `X ${impact.deltaXY.x}; Y ${impact.deltaXY.y}` : impact.deltaLiteralUnits ?? "unavailable"}. This is a requested displacement, not an independently established registration residual or defect.</p>
+    {!!boxes.length && <><svg role="img" aria-label="Requested native ROI before and after, unqualified frame" viewBox={`${left} ${top} ${width} ${height}`} width="420" height="220" style={{ maxWidth: "100%", border: "1px solid #80929c" }}>
+      {boxes.map((b, i) => <g key={i} transform={`rotate(${b.angle} ${b.x} ${b.y})`}><title>{i ? "Proposed" : "Original"} stored ROI center ({b.x}, {b.y})</title><rect x={b.x - b.w / 2} y={b.y - b.h / 2} width={b.w} height={b.h} fill="none" stroke={i ? "#f4b942" : "#53c4e8"} strokeDasharray={i ? `${radius / 8} ${radius / 12}` : undefined} strokeWidth={Math.max(width, height) / 180} /></g>)}
     </svg><p>Cyan: stored original ROI. Dashed amber: requested ROI. Same raw native frame; unit scale and Eagle propagation remain unqualified. No board photograph or source-frame geometry is silently overlaid.</p></>}
-    <p>Exact byte edit: <code>{impact.exactWrite}</code>. Master relation: {impact.masterMatch}; {impact.scopePlacements.length} linked placements, {impact.windows.length} windows, {impact.windows.reduce((n, w) => n + w.algorithmIds.length, 0)} algorithms preserved. {impact.bindingObservations.length} literal binding segments observed; ownership remains unresolved.</p>
+    <p>Exact byte edits: {impact.exactWrites.map((path, index) => <span key={path}>{index > 0 && "; "}<code>{path}</code></span>)}. Master relation: {impact.masterMatch}; {impact.scopePlacements.length} linked placements, {impact.windows.length} windows, {impact.windows.reduce((n, w) => n + w.algorithmIds.length, 0)} algorithms preserved. {impact.bindingObservations.length} literal binding segments observed; ownership remains unresolved.</p>
+    <p>FOV assignment: {impact.fovAssignment}. Component and inspection-window coverage: {impact.fovCoverage}. A nearest saved camera center does not establish acquisition coverage; this placement edit preserves FOV assignments.</p>
     <details><summary>Exact affected and preserved objects; dependent checks</summary>
       {impact.unresolved.map(value => <p key={value}>{value}</p>)}
       <p>Shared scope placements: {impact.scopePlacements.map(p => `${p.identity.RefID?.join()} / ID ${p.identity.ID?.join()} / ${p.sourcePath}`).join("; ") || "unavailable"}.</p>

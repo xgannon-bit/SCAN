@@ -37,6 +37,16 @@ test('ambiguous model does not select arbitrary windows or claim complete depend
   const impact = repairImpact(source, 'part-a', 'Roi/cx', '12');
   assert.equal(impact.windows.length, 0); assert.equal(impact.masterMatch, 'ambiguous-literal-match');
 });
+test('XY and Y-only geometry preserve size, rotation and nonzero origin while showing both requested axes', () => {
+  const source = report();
+  assert.deepEqual(repairImpact(source, 'part-a', 'Roi/cy', '7').afterBox, { x: 11, y: 7, w: 3, h: 2, angle: 90 });
+  const xy = repairImpact(source, 'part-a', 'Roi/cx', '15', { 'Roi/cy': '8' });
+  assert.deepEqual(xy.afterBox, { x: 15, y: 8, w: 3, h: 2, angle: 90 });
+  assert.deepEqual(xy.deltaXY, { x: 4, y: 12 });
+  assert.deepEqual(xy.exactWrites, ['part-a/Roi/cx', 'part-a/Roi/cy']);
+  assert.equal(xy.unresolved.some(v => v.includes('Only this scalar is written')), false);
+  assert.equal(repairImpact(source, 'part-a', 'Roi/cx', '15', { 'Roi/cy': 'NaN' }).afterBox, null);
+});
 test('composition context rejects cross-panel decision/profile races without coupling candidate history', () => {
   const preparation = { reviewer: 'test', review: { digest: 'a', decisions: [{ digest: 'part', decision: 'accepted' }] }, packageProfiles: [], history: [] };
   const repair = { acceptances: [{ proposalId: 'scalar', decision: 'accepted' }] };

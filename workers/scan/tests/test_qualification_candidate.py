@@ -172,7 +172,7 @@ class QualificationCandidateTests(unittest.TestCase):
         self.assertEqual(self.create(self.accept(request))['code'], 'IDENTITY_MISMATCH'); self.assert_no_output()
 
     def test_unsupported_fields_versions_enable_directions_and_empty_or_noop_sets(self):
-        cases = [self.request([proposal('Roi/cy')]), self.request([proposal('Threshold')]),
+        cases = [self.request([proposal('Roi/a')]), self.request([proposal('Threshold')]),
                  self.request([proposal('ENABLE', 'False', 'True')]), self.request([proposal('ENABLE', '1', '0')]),
                  self.request([proposal(after='12.500')]), self.request([])]
         for request in cases:

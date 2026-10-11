@@ -7,10 +7,19 @@ Nothing is serialized back to native XML.
 import json
 from defusedxml.ElementTree import DefusedXMLParser
 
+OBSERVED_PROFILES = {version: f'jobcontainer-{version}-observed-readonly-1' for version in ('10.1', '10.2')}
+
+
+def observed_document(document):
+    """Recognize explicit read-only profiles without relabeling file versions."""
+    return (isinstance(document, dict) and document.get('status') == 'recorded'
+            and document.get('readerProfile') in OBSERVED_PROFILES.values()
+            and (document.get('schemaVersionClaim') is None or OBSERVED_PROFILES.get(document['schemaVersionClaim']) == document['readerProfile']))
+
 _COLLECTIONS = {
     'JobContainer/ModuleDataList/ModuleData': ('module-record', {'ID', 'ArrayNo', 'ModelNo', 'TB', 'ENABLE', 'Angle', 'Shift/X', 'Shift/Y', 'RotCenter/X', 'RotCenter/Y'}),
-    'JobContainer/PartDataList/PartData': ('part-record', {'ID', 'No', 'Name', 'RefID', 'ModelNo', 'MasterKey', 'ParentId', 'ENABLE', 'PackageName', 'PartCode', 'ListGerPadId1', 'ListGerbPadId_Common1', 'WND_PAD', 'CenterPosX', 'CenterPosY', 'CadOffset/X', 'CadOffset/Y', 'Roi/cx', 'Roi/cy', 'Roi/w', 'Roi/h', 'Roi/a'}),
-    'JobContainer/WindowDataList/WindowData': ('window-record', {'ID', 'Name', 'ParentId', 'ParentWndId', 'GroupID', 'ENABLE', 'RelRoi/cx', 'RelRoi/cy', 'RelRoi/w', 'RelRoi/h', 'RelRoi/a'}),
+    'JobContainer/PartDataList/PartData': ('part-record', {'ID', 'No', 'Name', 'RefID', 'ModelNo', 'MasterKey', 'ParentId', 'ENABLE', 'PackageName', 'PartCode', 'ListGerPadId1', 'ListGerbPadId_Common1', 'WND_PAD', 'CenterPosX', 'CenterPosY', 'CadOffset/X', 'CadOffset/Y', 'Roi/cx', 'Roi/cy', 'Roi/w', 'Roi/h', 'Roi/a', 'SubFovNum', 'FovOPT'}),
+    'JobContainer/WindowDataList/WindowData': ('window-record', {'ID', 'Name', 'ParentId', 'ParentWndId', 'GroupID', 'AlignWndID', 'ENABLE', 'RelRoi/cx', 'RelRoi/cy', 'RelRoi/w', 'RelRoi/h', 'RelRoi/a'}),
     'JobContainer/CadData/CpList/Cp': ('cad-record', {'ID', 'ModuleID', 'RefID', 'MountNo', 'PrntPartName', 'PrntSetName', 'X', 'Y', 'Ang'}),
     'JobContainer/GerberList/GerberPad': ('pad-record', {'ID', 'ModelID', 'BlockID', 'PartNo', 'PartNoOld', 'C', 'MID', 'Cat', 'PinNumber', 'WH', 'WndTemp', 'PadFormat', 'Overlap', 'RegionType'}),
     'JobContainer/WindowDataList/WindowData/AlgorithmDataList/AlgorithmData': ('algorithm-record', {'ID', 'Type', 'Use3D', 'Use2D'}),
@@ -103,10 +112,10 @@ class _Records:
         if self.root != 'JobContainer':
             return {'status': 'unsupported', 'reason': 'No record profile for this XML root.', 'records': [], 'machineExportAllowed': False}
         version = self.version.strip() if self.version is not None else None
-        if version != '10.2' or self.version_count != 1 or self.version_nested:
-            return {'status': 'unsupported', 'reason': 'Record profile requires one literal JobXmlVersion 10.2 claim; this is not an Eagle application version.', 'records': [], 'machineExportAllowed': False}
+        if version not in OBSERVED_PROFILES or self.version_count != 1 or self.version_nested:
+            return {'status': 'unsupported', 'reason': 'Record profile requires one literal observed JobXmlVersion 10.1 or 10.2 claim; this is not an Eagle application version.', 'records': [], 'machineExportAllowed': False}
         return {
-            'status': 'recorded', 'readerProfile': 'jobcontainer-10.2-observed-readonly-1', 'schemaVersionClaim': version,
+            'status': 'recorded', 'readerProfile': OBSERVED_PROFILES[version], 'schemaVersionClaim': version,
             'profileQualification': 'observed-field-paths-only', 'records': self.records,
             'countsByRecordKind': {kind: sum(record['kind'] == kind for record in self.records) for kind, _ in _COLLECTIONS.values()},
             'duplicateScalarFields': self.duplicates,

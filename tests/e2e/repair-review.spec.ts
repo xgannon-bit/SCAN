@@ -7,13 +7,14 @@ import { makeArchive, syntheticMembers, syntheticSelection } from '../synthetic-
 test('real repair screen creates a changed native copy and reopens exact decisions/history', async ({ page }, info) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   const job = '<JobContainer><JobXmlVersion>10.2</JobXmlVersion><ModuleDataList><ModuleData><ID>FABLE-M</ID></ModuleData></ModuleDataList><PartDataList><PartData><ID>FABLE-42</ID><ParentId>FABLE-M</ParentId><MasterKey>FABLE-MASTER</MasterKey><RefID>FABLE-C8</RefID><ENABLE>True</ENABLE><Roi><cx>17.250</cx><cy>6</cy><w>2</w><h>1</h><a>0</a></Roi><Unrelated>KEEP EXACT</Unrelated></PartData></PartDataList></JobContainer>';
+  const master = '<JobContainer><JobXmlVersion>10.2</JobXmlVersion><PartDataList><PartData><ID>FABLE-MASTER</ID><MasterKey>FABLE-MASTER</MasterKey><RefID>FABLE-C8</RefID></PartData></PartDataList></JobContainer>';
   await page.goto('/intake');
   const section = page.getByRole('region', { name: 'Existing native job archive', exact: true });
-  await section.getByLabel('Native job archive (.zip)').setInputFiles({ name: 'synthetic.zip', mimeType: 'application/zip', buffer: makeArchive({ ...syntheticMembers, [syntheticSelection.jobMember]: job }) });
+  await section.getByLabel('Native job archive (.zip)').setInputFiles({ name: 'synthetic.zip', mimeType: 'application/zip', buffer: makeArchive({ ...syntheticMembers, [syntheticSelection.jobMember]: job, [syntheticSelection.masterMember]: master }) });
   await section.getByRole('button', { name: 'Inventory archive', exact: true }).click();
   await section.getByRole('combobox', { name: 'Job root', exact: true }).selectOption(syntheticSelection.root);
   await section.getByRole('combobox', { name: 'Job snapshot', exact: true }).selectOption(JSON.stringify({ role: 'main', member: syntheticSelection.jobMember }));
-  await section.getByRole('combobox', { name: 'Master snapshot', exact: true }).selectOption('none');
+  await section.getByRole('combobox', { name: 'Master snapshot', exact: true }).selectOption(JSON.stringify({ role: 'main', member: syntheticSelection.masterMember }));
   await section.getByRole('button', { name: 'Capture and verify selection' }).click();
   await expect(section.getByRole('heading', { name: 'Snapshot integrity verified; original baseline preserved' })).toBeVisible();
   await page.getByRole('navigation', { name: 'SCAN screens' }).getByRole('link', { name: 'Repair Review', exact: true }).click();

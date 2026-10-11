@@ -106,9 +106,9 @@ def duplicate_review(job, master, source_context):
                 continue
             if not isinstance(raw, bytes) or selected['role'] not in ('main', 'temp', 'backup') or not isinstance(selected['member'], str) or sha256(raw).hexdigest() != selected['sha256']:
                 raise ValueError('selection hash')
-            _xml(raw)
+            _xml(raw, supported_versions=('10.1', '10.2'))
             root = ET.fromstring(raw)
-            if root.tag != 'JobContainer' or _values(root, 'JobXmlVersion') != ['10.2']:
+            if root.tag != 'JobContainer' or _values(root, 'JobXmlVersion') not in (['10.1'], ['10.2']):
                 raise ValueError('schema')
             parsed[role] = root
         j, m = parsed['job'], parsed['master']

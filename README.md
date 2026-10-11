@@ -73,6 +73,12 @@ machine-side work queue. This supports both new preparation and existing-job
 recovery. See the [product requirements and bundle contract](docs/product-requirements.md).
 The current importers and demo are milestones toward that output, not substitutes.
 
+[Reviewed placement experiments](docs/native-placement-replay.md) support exact
+ROI X/Y proposals, atomic two-axis decisions and repair-only candidate reanalysis.
+Historical replay is labeled separately from an independently diagnosed repair.
+Source-bound decisions, original-byte reproduction and protected companion checks
+remain required; native binding, FOV coverage and Eagle behavior stay unqualified.
+
 SCAN handles programming assistance and diagnosis. The companion release-control system retains validation and release authority; the inspection machine and SPC system retain their own operational responsibilities.
 
 ## Data boundary

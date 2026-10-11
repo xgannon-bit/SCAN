@@ -15,6 +15,7 @@ from collections import Counter, defaultdict
 from decimal import Decimal
 import json
 import re
+from .native_records import observed_document
 
 
 PROFILE = 'jobcontainer-10.2-observed-readonly-1'
@@ -44,7 +45,7 @@ def _key(record, names):
 
 
 def _available(document):
-    return isinstance(document, dict) and document.get('status') == 'recorded' and document.get('readerProfile') == PROFILE
+    return observed_document(document)
 
 
 def _validate(documents):
@@ -167,7 +168,8 @@ def report_native_bindings(documents):
         result = {
             'artifactType': 'scan.native-literal-bindings', 'schemaVersion': '1',
             'analyzerVersion': 'native-literal-bindings-1', 'status': 'recorded',
-            'code': 'NATIVE_LITERAL_BINDINGS_RECORDED', 'readerProfile': PROFILE,
+            'code': 'NATIVE_LITERAL_BINDINGS_RECORDED', 'readerProfile': documents['job']['readerProfile'],
+            'readerProfiles': {role: document['readerProfile'] for role, document in documents.items() if _available(document)},
             'literalObservationsComplete': True, 'ownershipQualified': False,
             'nativeSchemaQualified': False, 'machineExportAllowed': False,
             'nativeEditsApplied': False, 'repairEligibility': 'unqualified',

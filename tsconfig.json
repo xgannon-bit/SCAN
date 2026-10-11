@@ -37,7 +37,9 @@
     ".next-evaluation/types/**/*.ts",
     ".next-evaluation/dev/types/**/*.ts",
     ".next-development/types/**/*.ts",
-    ".next-development/dev/types/**/*.ts"
+    ".next-development/dev/types/**/*.ts",
+    ".next-placement-repair/types/**/*.ts",
+    ".next-placement-repair/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"
