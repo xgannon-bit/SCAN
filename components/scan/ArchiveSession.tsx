@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ArchiveInventory, ArchiveReview, ArchiveSelection } from "@/lib/scan/archive-types";
 import { downloadJson } from "@/lib/scan/review-session";
 import { reviewMatchesSelection, selectionInInventory, type RestoredArchive } from "@/lib/scan/project-session";
+import { fetchArchiveSourceRead } from "@/lib/scan/archive-source-read";
 
 export function useArchiveSession() {
   const [archiveFile, setArchiveFile] = useState<File | null>(null);
@@ -82,7 +83,7 @@ export function useArchiveSession() {
       form.set("expectedArchiveSha256", action === "inventory" ? "" : record.source.sha256);
       form.set("selection", JSON.stringify(action === "inventory" ? null : record.selection));
       form.set("expectedPackageSha256", "");
-      const response = await fetch("/api/archive", { method: "POST", body: form, signal: abort.signal });
+      const response = await fetchArchiveSourceRead(form, abort.signal);
       const value = await response.json();
       if (!response.ok || value.message) throw new Error(value.message || "Saved archive could not be read again locally.");
       return value;

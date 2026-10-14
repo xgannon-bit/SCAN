@@ -7,7 +7,7 @@ import { placementNextAction } from "@/lib/scan/source-report";
 import { useScanSession } from "./ScanSession";
 
 export function PlacementFindings() {
-  const { result, notes, setSelectedRow, archiveReview } = useScanSession();
+  const { visual, result, notes, setSelectedRow, archiveReview } = useScanSession();
   const [filter, setFilter] = useState("");
   const placements = new Map(result?.placements.map(value => [value.sourceRow, value]));
   const issues = result?.issues.filter(issue => `${issue.row} ${issue.message} ${placements.get(issue.row)?.refdes ?? ""}`.toLowerCase().includes(filter.toLowerCase())) ?? [];
@@ -20,7 +20,7 @@ export function PlacementFindings() {
       {result.issues.length ? <>
         <label className="scan-field">Find issue by reference, row or reason<input value={filter} onChange={event => setFilter(event.target.value)} /></label>
         <p>{issues.length} matching issues. Showing {Math.min(issues.length, 100)}; the handoff includes all issues.</p>
-        {issues.slice(0, 100).map((issue, index) => { const placement = placements.get(issue.row); return <article className="scan-finding-card" key={`${issue.row}:${index}`}><h3>Row {issue.row} · {issue.severity}</h3>{placement && <p>{placement.module} / {placement.side} / {placement.refdes}</p>}<p>{issue.message}</p><p><strong>Next action:</strong> {placementNextAction(issue.code)}</p>{notes[`row:${issue.row}`] && <p>User note: {notes[`row:${issue.row}`]}</p>}{placement ? <Link href="/workspace" className={buttonVariants({ variant: "outline" })} onClick={() => setSelectedRow(issue.row)}>Inspect source row {issue.row}</Link> : <Link href="/intake" className={buttonVariants({ variant: "outline" })}>Review source mapping for row {issue.row}</Link>}</article>; })}
+        {issues.slice(0, 100).map((issue, index) => { const placement = placements.get(issue.row); return <article className="scan-finding-card" key={`${issue.row}:${index}`}><h3>Row {issue.row} · {issue.severity}</h3>{placement && <p>{placement.module} / {placement.side} / {placement.refdes}</p>}<p>{issue.message}</p><p><strong>Next action:</strong> {placementNextAction(issue.code)}</p>{notes[`row:${issue.row}`] && <p>User note: {notes[`row:${issue.row}`]}</p>}{placement ? <Link href="/workspace" className={buttonVariants({ variant: "outline" })} onClick={() => { visual.setView(old => ({ ...old, frame: "source", selected: "" })); setSelectedRow(issue.row); }}>Inspect source row {issue.row}</Link> : <Link href="/intake" className={buttonVariants({ variant: "outline" })}>Review source mapping for row {issue.row}</Link>}</article>; })}
       </> : <p>No row issues were reported by the placement parser.</p>}
       <details><summary>Source identity</summary><p className="scan-hash">SHA-256: {result.sourceSha256}</p></details>
       <Link href="/workspace" className={buttonVariants({ variant: "outline" })}>Inspect parsed placements</Link>

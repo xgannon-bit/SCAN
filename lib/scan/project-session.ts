@@ -1,4 +1,6 @@
+import { validateVisualWorkspace, type VisualWorkspaceState } from "./visual-workspace";
 import { validateOriginReview, type OriginReviewSession } from "./origin-review";
+import { validateNativeDiagnosisDraft, type NativeDiagnosisDraft } from "./native-placement-diagnosis";
 import { validateSourceRegistrationSession, type SourceRegistrationSession } from "./source-registration";
 import type { ComparisonPlacement } from "../../components/scan/ComparisonSession";
 import { validateBomConfig, type BomConfig } from "./bom-types";
@@ -32,8 +34,9 @@ export function retainProjectEvidence(evidence: ProjectEvidence, sourceHashes: S
   return { evidence: retained ? { authority: "annotations-only", decisions, candidateHistory, machineObservations } : undefined, removed };
 }
 export type ProjectSessionFile = {
+  visualWorkspace?: VisualWorkspaceState;
   artifactType: "scan.project-session"; schemaVersion: "1";
-  placement: ReviewSessionFile | null; gerber: GerberDraft | null;
+  placement: ReviewSessionFile | null; gerber: GerberDraft | null; nativeDiagnosis?: NativeDiagnosisDraft;
   archives: { original: ProjectArchive | null; returned: ProjectArchive | null; generated?: ProjectArchive | null };
   notes: ReviewNotes; machineVersion: string; evidence?: ProjectEvidence; repair?: RepairSession; nativePreparation?: NativePreparationSession; sourceRegistration?: SourceRegistrationSession; originReview?: OriginReviewSession;
   layout?: { source: EmbeddedSource; checked: boolean };
@@ -43,6 +46,8 @@ export type ProjectSessionFile = {
   machineExportAllowed: false;
 };
 export type ProjectInput = {
+  visualWorkspace?: VisualWorkspaceState;
+  nativeDiagnosis?: NativeDiagnosisDraft;
   layout?: { file: File; checked: boolean };
   bom?: RestoredBom;
   comparisons?: ComparisonPlacement[];
@@ -142,9 +147,10 @@ function validateEvidence(value: unknown, sources: Set<string>) {
 }
 export function validateProjectSession(value: unknown): ProjectSessionFile {
   const project = object(value);
-  exact(project, ["artifactType", "schemaVersion", "placement", "gerber", "archives", "notes", "machineVersion", "machineExportAllowed", ...(Object.hasOwn(project, "evidence") ? ["evidence"] : []), ...(Object.hasOwn(project, "repair") ? ["repair"] : []), ...(Object.hasOwn(project, "nativePreparation") ? ["nativePreparation"] : []), ...(Object.hasOwn(project, "sourceRegistration") ? ["sourceRegistration"] : []), ...(Object.hasOwn(project, "originReview") ? ["originReview"] : []), ...(Object.hasOwn(project, "attachments") ? ["attachments"] : []), ...(Object.hasOwn(project, "layout") ? ["layout"] : []), ...(Object.hasOwn(project, "bom") ? ["bom"] : []), ...(Object.hasOwn(project, "comparisons") ? ["comparisons"] : [])]);
+  exact(project, ["artifactType", "schemaVersion", "placement", "gerber", "archives", "notes", "machineVersion", "machineExportAllowed", ...(Object.hasOwn(project, "visualWorkspace") ? ["visualWorkspace"] : []), ...(Object.hasOwn(project, "evidence") ? ["evidence"] : []), ...(Object.hasOwn(project, "repair") ? ["repair"] : []), ...(Object.hasOwn(project, "nativePreparation") ? ["nativePreparation"] : []), ...(Object.hasOwn(project, "sourceRegistration") ? ["sourceRegistration"] : []), ...(Object.hasOwn(project, "originReview") ? ["originReview"] : []), ...(Object.hasOwn(project, "nativeDiagnosis") ? ["nativeDiagnosis"] : []), ...(Object.hasOwn(project, "attachments") ? ["attachments"] : []), ...(Object.hasOwn(project, "layout") ? ["layout"] : []), ...(Object.hasOwn(project, "bom") ? ["bom"] : []), ...(Object.hasOwn(project, "comparisons") ? ["comparisons"] : [])]);
   if (project.artifactType !== "scan.project-session" || project.schemaVersion !== "1" || project.machineExportAllowed !== false || !text(project.machineVersion, 256)) throw new Error("Unsupported project version or capability flags.");
   validateNotes(project.notes);
+  if (Object.hasOwn(project, "visualWorkspace")) validateVisualWorkspace(project.visualWorkspace);
   const sources = new Set<string>();
   if (project.placement !== null) {
     const placement = validateReviewSession(project.placement); sources.add(placement.source.sha256);
@@ -180,6 +186,7 @@ export function validateProjectSession(value: unknown): ProjectSessionFile {
   if (Object.hasOwn(project, "repair")) validateRepairSession(project.repair);
   if (Object.hasOwn(project, "sourceRegistration")) validateSourceRegistrationSession(project.sourceRegistration);
   if (Object.hasOwn(project, "originReview")) validateOriginReview(project.originReview);
+  if (Object.hasOwn(project, "nativeDiagnosis")) validateNativeDiagnosisDraft(project.nativeDiagnosis);
   if (Object.hasOwn(project, "nativePreparation")) validateNativePreparationSession(project.nativePreparation);
   return value as ProjectSessionFile;
 }
@@ -223,14 +230,14 @@ export async function encodeProject(input: ProjectInput): Promise<Blob> {
   const bom = input.bom ? { source: await encodeSource(input.bom.file, 8_000_000), config: input.bom.config, sheet: input.bom.sheet, delimiter: input.bom.delimiter, checked: input.bom.checked } : undefined;
   const attachments = [];
   for (const item of input.attachments ?? []) attachments.push({ role: item.role, source: await encodeSource(item.file, 8_000_000) });
-  const record = validateProjectSession({ artifactType: "scan.project-session", schemaVersion: "1", placement, gerber, archives: { original, returned, ...(generated ? { generated } : {}) }, notes: input.notes, machineVersion: input.machineVersion, ...(input.evidence ? { evidence: input.evidence } : {}), ...(input.repair ? { repair: input.repair } : {}), ...(input.nativePreparation ? { nativePreparation: input.nativePreparation } : {}), ...(input.sourceRegistration ? { sourceRegistration: input.sourceRegistration } : {}), ...(input.originReview ? { originReview: input.originReview } : {}), ...(attachments.length ? { attachments } : {}), ...(layout ? { layout } : {}), ...(bom ? { bom } : {}), ...(comparisons.length ? { comparisons } : {}), machineExportAllowed: false });
+  const record = validateProjectSession({ artifactType: "scan.project-session", schemaVersion: "1", placement, gerber, archives: { original, returned, ...(generated ? { generated } : {}) }, notes: input.notes, machineVersion: input.machineVersion, ...(input.visualWorkspace ? { visualWorkspace: input.visualWorkspace } : {}), ...(input.evidence ? { evidence: input.evidence } : {}), ...(input.repair ? { repair: input.repair } : {}), ...(input.nativePreparation ? { nativePreparation: input.nativePreparation } : {}), ...(input.sourceRegistration ? { sourceRegistration: input.sourceRegistration } : {}), ...(input.originReview ? { originReview: input.originReview } : {}), ...(input.nativeDiagnosis ? { nativeDiagnosis: input.nativeDiagnosis } : {}), ...(attachments.length ? { attachments } : {}), ...(layout ? { layout } : {}), ...(bom ? { bom } : {}), ...(comparisons.length ? { comparisons } : {}), machineExportAllowed: false });
   // Separate Blob parts avoid expanding both large base64 strings in one stringify.
   function archiveParts(value: ProjectArchive | null): BlobPart[] {
     if (!value) return ["null"];
     const { base64, ...metadata } = value.source;
     return ['{"source":', JSON.stringify(metadata).slice(0, -1), ',"base64":"', base64, '"},"selection":', JSON.stringify(value.selection), ',"draft":', JSON.stringify(value.draft), '}'];
   }
-  const blob = new Blob(['{"artifactType":"scan.project-session","schemaVersion":"1","placement":', JSON.stringify(record.placement), ',"gerber":', JSON.stringify(record.gerber), ',"archives":{"original":', ...archiveParts(original), ',"returned":', ...archiveParts(returned), ...(generated ? [',"generated":', ...archiveParts(generated)] : []), '},"notes":', JSON.stringify(record.notes), ',"machineVersion":', JSON.stringify(record.machineVersion), ...(record.evidence ? [',"evidence":', JSON.stringify(record.evidence)] : []), ...(record.repair ? [',"repair":', JSON.stringify(record.repair)] : []), ...(record.nativePreparation ? [',"nativePreparation":', JSON.stringify(record.nativePreparation)] : []), ...(record.sourceRegistration ? [',"sourceRegistration":', JSON.stringify(record.sourceRegistration)] : []), ...(record.originReview ? [',"originReview":', JSON.stringify(record.originReview)] : []), ...(record.attachments ? [',"attachments":', JSON.stringify(record.attachments)] : []), ...(record.layout ? [',"layout":', JSON.stringify(record.layout)] : []), ...(record.bom ? [',"bom":', JSON.stringify(record.bom)] : []), ...(record.comparisons ? [',"comparisons":', JSON.stringify(record.comparisons)] : []), ',"machineExportAllowed":false}'], { type: "application/json" });
+  const blob = new Blob(['{"artifactType":"scan.project-session","schemaVersion":"1","placement":', JSON.stringify(record.placement), ',"gerber":', JSON.stringify(record.gerber), ',"archives":{"original":', ...archiveParts(original), ',"returned":', ...archiveParts(returned), ...(generated ? [',"generated":', ...archiveParts(generated)] : []), '},"notes":', JSON.stringify(record.notes), ',"machineVersion":', JSON.stringify(record.machineVersion), ...(record.visualWorkspace ? [',"visualWorkspace":', JSON.stringify(record.visualWorkspace)] : []), ...(record.evidence ? [',"evidence":', JSON.stringify(record.evidence)] : []), ...(record.repair ? [',"repair":', JSON.stringify(record.repair)] : []), ...(record.nativePreparation ? [',"nativePreparation":', JSON.stringify(record.nativePreparation)] : []), ...(record.sourceRegistration ? [',"sourceRegistration":', JSON.stringify(record.sourceRegistration)] : []), ...(record.originReview ? [',"originReview":', JSON.stringify(record.originReview)] : []), ...(record.nativeDiagnosis ? [',"nativeDiagnosis":', JSON.stringify(record.nativeDiagnosis)] : []), ...(record.attachments ? [',"attachments":', JSON.stringify(record.attachments)] : []), ...(record.layout ? [',"layout":', JSON.stringify(record.layout)] : []), ...(record.bom ? [',"bom":', JSON.stringify(record.bom)] : []), ...(record.comparisons ? [',"comparisons":', JSON.stringify(record.comparisons)] : []), ',"machineExportAllowed":false}'], { type: "application/json" });
   if (blob.size > PROJECT_MAX_BYTES) throw new Error("Project exceeds the 300 MB save limit. Shorten annotations and try again.");
   return blob;
 }

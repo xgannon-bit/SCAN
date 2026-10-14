@@ -22,6 +22,12 @@ def main():
             from .alignment import align
             if request['config'] != {} or source.stat().st_size > 32000: raise ValueError('Invalid alignment settings')
             result = align(json.loads(source.read_bytes()))
+        elif request['action'] == 'image-register':
+            from hashlib import sha256
+            from .image_registration import fit_image_registration
+            if request['config'] != {} or source.stat().st_size > 64000: raise ValueError('Invalid image registration settings')
+            data = source.read_bytes()
+            result = fit_image_registration(json.loads(data), sha256(data).hexdigest())
         else: raise ValueError('Unknown geometry action')
     except ValueError as exc:
         result = {'status': 'blocked', 'message': str(exc)}

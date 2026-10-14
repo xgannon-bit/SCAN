@@ -82,7 +82,10 @@ def diagnose_pad_bindings(job, master, pcb):
     try:
         if not all(isinstance(raw, bytes) for raw in (job, master, pcb)):
             return _failure('BINDING_INVALID_INPUT')
-        _xml(job); _xml(master)
+        # Read-only inventory explicitly supports both observed schemas. This
+        # opt-in does not change the constructors' or writers' 10.2 defaults.
+        _xml(job, supported_versions=('10.1', '10.2'))
+        _xml(master, supported_versions=('10.1', '10.2'))
         documents = {role: read_native_records(BytesIO(raw), len(raw))
                      for role, raw in (('job', job), ('master', master))}
         if any(document['status'] != 'recorded' for document in documents.values()):

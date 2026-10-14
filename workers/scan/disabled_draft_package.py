@@ -69,7 +69,7 @@ def create_disabled_draft_package(source_path, destination_path, pcb, selection:
                         _fail('XML_LIMIT', 'Selected draft XML exceeds its bounded reader.')
                 if recipe.get('profile') == 'job-local-owned-footprint-disabled-2':
                     from .native_preparation import apply_preparation
-                    changed = apply_preparation(raw['job'], raw['master'], pcb, recipe, recipe_digest(recipe))
+                    changed = apply_preparation(raw['job'], raw['master'], pcb, recipe, recipe_digest(recipe), progress=True)
                 else:
                     changed = apply_disabled_draft(raw['job'], raw['master'], pcb, recipe, recipe_digest(recipe))
                 replacements = {selected[role]: data for role, data in changed.items()}

@@ -10,12 +10,16 @@ import { useComparisonSession } from "./ComparisonSession";
 import { useBomSession } from "./BomSession";
 import { useArchiveSession } from "./ArchiveSession";
 import { buildNativeQualification } from "@/lib/scan/native-qualification";
+import { useNativeAnalysis } from "./NativeAnalysis";
+import { useCandidatePreservation } from "./CandidatePreservation";
+import { useVisualSession } from "./VisualSession";
 import { useGerberSession } from "./GerberSession";
 
 import { emptyNativePreparation, type NativePreparationSession } from "@/lib/scan/native-preparation-session";
 import { emptyRepair, type RepairSession } from "@/lib/scan/repair-session";
 import { emptyOriginReview, type OriginReviewSession } from "@/lib/scan/origin-review";
 import { emptySourceRegistration, type SourceRegistrationSession } from "@/lib/scan/source-registration";
+import { emptyNativeDiagnosis, type NativeDiagnosisDraft, type NativeDiagnosisContext, type NativeDiagnosisReport } from "@/lib/scan/native-placement-diagnosis";
 
 const initial: PlacementConfig = { startRow: 1, columns: { refdes: 1, mpn: 2, xy: 4, side: 5, rotation: 6, footprint: 7 }, module: "", side: "", units: "unknown", rotationDirection: "unknown", decimalSeparator: ".", pairSeparator: "," };
 
@@ -24,12 +28,16 @@ export function retainSessionNote(notes: ReviewNotes): ReviewNotes {
 }
 
 function usePlacementSession() {
+  const visual = useVisualSession();
+  const importRun = useRef<string | null>(null);
   const layout = useLayoutSession(); const bom = useBomSession(); const comparisons = useComparisonSession();
   const [attachments, setAttachments] = useState<{ role: "BOM" | "evidence"; file: File }[]>([]);
   const [nativePreparation, setNativePreparation] = useState<NativePreparationSession>(emptyNativePreparation);
   const [repair, setRepair] = useState<RepairSession>(emptyRepair);
   const [sourceRegistration, setSourceRegistration] = useState<SourceRegistrationSession>(emptySourceRegistration);
   const [originReview, setOriginReview] = useState<OriginReviewSession>(emptyOriginReview);
+  const [nativeFinding, setNativeFinding] = useState<{ basis: string; context: NativeDiagnosisContext; report: NativeDiagnosisReport } | null>(null);
+  const [nativeDiagnosis, setNativeDiagnosis] = useState<NativeDiagnosisDraft>(emptyNativeDiagnosis);
   const generatedArchive = useArchiveSession();
   const [candidateWorkBusy, setCandidateWorkBusy] = useState(false);
   const archive = useArchiveSession();
@@ -75,6 +83,7 @@ function usePlacementSession() {
 
   // Invalidate pending responses synchronously, including clear from another screen.
   function invalidate() {
+    if (importRun.current) { visual.finish(importRun.current, "cancelled", "Placement operation invalidated by source or interpretation change."); importRun.current = null; }
     gerber.placementChanged();
     revision.current += 1;
     controller.current?.abort(); controller.current = null;
@@ -88,8 +97,9 @@ function usePlacementSession() {
   }
   function changeSheet(value: number) { invalidate(); setNotes(retainSessionNote); setSheet(value); setPreview(null); }
   function changeDelimiter(value: string) { invalidate(); setNotes(retainSessionNote); setDelimiter(value); setPreview(null); }
-  function reset() { changeFile(null); changeBaseline(null); gerber.reset(); bom.reset(); comparisons.reset(); layout.changeFile(null); setEagleVersion(""); setNotes({}); setProjectEvidence(undefined); setRepair(emptyRepair()); setSourceRegistration(emptySourceRegistration()); setOriginReview(emptyOriginReview()); setNativePreparation(emptyNativePreparation()); setAttachments([]); evidenceSources.current.clear(); }
+  function reset() { setNativeFinding(null); visual.restore(); changeFile(null); changeBaseline(null); gerber.reset(); bom.reset(); comparisons.reset(); layout.changeFile(null); setEagleVersion(""); setNotes({}); setProjectEvidence(undefined); setRepair(emptyRepair()); setSourceRegistration(emptySourceRegistration()); setOriginReview(emptyOriginReview()); setNativeDiagnosis(emptyNativeDiagnosis()); setNativePreparation(emptyNativePreparation()); setAttachments([]); evidenceSources.current.clear(); }
   function cancel() {
+    if (importRun.current) { visual.finish(importRun.current, "cancelled", "Import cancelled by operator."); importRun.current = null; }
     revision.current += 1;
     controller.current?.abort(); controller.current = null;
     setBusy(false); setError("Import cancelled.");
@@ -102,6 +112,7 @@ function usePlacementSession() {
     controller.current = abort;
     setBusy(true);
     if (action === "inspect") setPreview(null);
+    const runId = visual.begin("Placement import", preview?.sourceSha256 ?? file.name, action === "inspect" ? "Reading source rows." : "Normalizing mapped source coordinates."); importRun.current = runId;
     const form = new FormData();
     form.set("file", file); form.set("action", action); form.set("sheetIndex", String(sheet));
     form.set("delimiter", delimiter); form.set("config", JSON.stringify(config));
@@ -115,7 +126,10 @@ function usePlacementSession() {
         if (value.sourceSha256 !== preview?.sourceSha256) throw new Error("Source changed since preview. Read the file again before validation.");
         setResult(value);
       }
+      visual.finish(runId, "completed", action === "inspect" ? "Source preview read; mapping still needs validation." : "Placement normalization finished. Geometry remains in its declared source frame.", action === "normalize" ? value.counts.parsed : null);
+      importRun.current = null;
     } catch (failure) {
+      visual.finish(runId, "failed", failure instanceof Error ? failure.message : "Import failed."); importRun.current = null;
       if (controller.current === abort && !abort.signal.aborted) setError(failure instanceof Error ? failure.message : "Import failed.");
     } finally {
       if (controller.current === abort) { controller.current = null; setBusy(false); }
@@ -155,12 +169,13 @@ function usePlacementSession() {
 
   async function buildProjectBlob(repairOverride = repair, preparationOverride = nativePreparation, generatedOverride?: ProjectInput["generated"]) {
     return encodeProject({
+        visualWorkspace: visual.snapshot(),
         placement: file ? { file, settings: { config, sheetIndex: sheet, delimiter, validated: !!result, selectedRow, notes } } : null,
         gerber: gerber.file ? { file: gerber.file, settings: { config: gerber.config, points: gerber.points, scope: gerber.scope, tolerance: gerber.tolerance, basis: gerber.basis, checked: !!gerber.alignment } } : null,
         generated: generatedOverride === undefined ? generatedArchive.archiveFile ? { file: generatedArchive.archiveFile, selection: generatedArchive.selection, draft: generatedArchive.archiveDraft } : null : generatedOverride,
         original: archive.archiveFile ? { file: archive.archiveFile, selection: archive.selection, draft: archive.archiveDraft } : null,
         returned: returnedArchive.archiveFile ? { file: returnedArchive.archiveFile, selection: returnedArchive.selection, draft: returnedArchive.archiveDraft } : null,
-        ...(layout.file ? { layout: { file: layout.file, checked: !!layout.result } } : {}), comparisons: comparisons.entries, ...(bom.file ? { bom: { file: bom.file, config: bom.config, sheet: bom.sheet, delimiter: bom.delimiter, checked: !!bom.result } } : {}), attachments, notes, sourceRegistration, originReview, repair: repairOverride, nativePreparation: preparationOverride, machineVersion: eagleVersion, ...(projectEvidence ? { evidence: projectEvidence } : {}),
+        ...(layout.file ? { layout: { file: layout.file, checked: !!layout.result } } : {}), comparisons: comparisons.entries, ...(bom.file ? { bom: { file: bom.file, config: bom.config, sheet: bom.sheet, delimiter: bom.delimiter, checked: !!bom.result } } : {}), attachments, notes, sourceRegistration, originReview, nativeDiagnosis, repair: repairOverride, nativePreparation: preparationOverride, machineVersion: eagleVersion, ...(projectEvidence ? { evidence: projectEvidence } : {}),
       });
   }
 
@@ -194,6 +209,7 @@ function usePlacementSession() {
       const restored = await decodeProject(saved);
       if (current !== revision.current || abort.signal.aborted || originalRevision !== archive.archiveRevision.current || returnedRevision !== returnedArchive.archiveRevision.current || startingGeneratedRevision !== generatedArchive.archiveRevision.current || startingGeometryRevision !== gerber.revision.current) return;
       const { placement, gerber: savedGerber } = restored;
+      visual.restore(restored.record.visualWorkspace); setNativeFinding(null);
       evidenceSources.current = new Map([
         ...(placement ? [[placement.source, placement.record.source.sha256] as const] : []),
         ...(savedGerber ? [[savedGerber.file, savedGerber.draft.source.sha256] as const] : []),
@@ -216,7 +232,7 @@ function usePlacementSession() {
       // mapping cannot currently be parsed. Derived results are never restored.
       setFile(placement?.source ?? null); setConfig(placement?.record.config ?? initial); setSheet(placement?.record.sheetIndex ?? 0); setDelimiter(placement?.record.delimiter ?? ",");
       setPreview(null); setResult(null); setSelectedRow(null); setNotes(restored.record.notes);
-      changeBaseline(null); updateEagleVersion(restored.record.machineVersion); setProjectEvidence(restored.record.evidence); setRepair(restored.record.repair ?? emptyRepair()); setSourceRegistration(restored.record.sourceRegistration ?? emptySourceRegistration()); setOriginReview(restored.record.originReview ?? emptyOriginReview()); setNativePreparation(restored.record.nativePreparation ?? emptyNativePreparation()); setAttachments(restored.attachments ?? []); sourceRestored = true;
+      changeBaseline(null); updateEagleVersion(restored.record.machineVersion); setProjectEvidence(restored.record.evidence); setRepair(restored.record.repair ?? emptyRepair()); setSourceRegistration(restored.record.sourceRegistration ?? emptySourceRegistration()); setOriginReview(restored.record.originReview ?? emptyOriginReview()); setNativeDiagnosis(restored.record.nativeDiagnosis ?? emptyNativeDiagnosis()); setNativePreparation(restored.record.nativePreparation ?? emptyNativePreparation()); setAttachments(restored.attachments ?? []); sourceRestored = true;
       // One archive worker is allowed at a time. Keep the returned file visible
       // while the original is inventoried, without reusing any saved reports.
       if (restored.original) archive.loadArchiveDraft(restored.original);
@@ -263,9 +279,26 @@ function usePlacementSession() {
   }
 
   const contextFiles = useMemo(() => [file, gerber.file, bom.file, layout.file, ...comparisons.entries.map(item => item.file), ...attachments.map(item => item.file)], [file, gerber.file, bom.file, layout.file, comparisons.entries, attachments]);
-  const sourceContext = useSourceContext(contextFiles, JSON.stringify({ config, sheet, delimiter, gerber: { config: gerber.config, points: gerber.points, scope: gerber.scope, tolerance: gerber.tolerance, basis: gerber.basis }, bom: { config: bom.config, sheet: bom.sheet, delimiter: bom.delimiter }, comparisons: comparisons.entries.map(item => ({ config: item.config, sheet: item.sheetIndex, delimiter: item.delimiter })) }));
+  const sourceContext = useSourceContext(contextFiles, JSON.stringify({ config, sheet, delimiter, nativeDiagnosis: nativeDiagnosis.settings, packageProfiles: nativePreparation.packageProfiles ?? [], gerber: { config: gerber.config, points: gerber.points, scope: gerber.scope, tolerance: gerber.tolerance, basis: gerber.basis }, bom: { config: bom.config, sheet: bom.sheet, delimiter: bom.delimiter }, comparisons: comparisons.entries.map(item => ({ config: item.config, sheet: item.sheetIndex, delimiter: item.delimiter })) }));
+  const candidatePreservation = useCandidatePreservation({ original: archive.archiveReview, candidate: generatedArchive.archiveReview, history: repair.history, file: archive.archiveFile, selection: archive.selection, layout: layout.file, placement: file, bom: bom.file, ready: !busy && !archive.archiveBusy && !generatedArchive.archiveBusy && !layout.busy && !bom.busy, sourceContext });
+  const nativeAnalysis = useNativeAnalysis({ contextHash: sourceContext, basis: JSON.stringify({ source: sourceContext, native: archive.archiveReview?.capture.packageSha256, settings: nativeDiagnosis.settings, profiles: nativePreparation.packageProfiles ?? [] }),
+    context: layout.result && result && bom.result ? { schemaVersion: "1", settings: nativeDiagnosis.settings, source: { layoutSha256: layout.result.sourceSha256, placementSha256: result.sourceSha256, bomSha256: bom.result.sourceSha256 }, placementConfig: { config, sheet, delimiter }, bomConfig: { config: bom.config, sheet: bom.sheet, delimiter: bom.delimiter }, packageProfiles: nativePreparation.packageProfiles ?? [] } : null,
+    ready: !busy && !archive.archiveBusy && !generatedArchive.archiveBusy && !candidateWorkBusy && !candidatePreservation.busy && !layout.busy && !bom.busy && !!sourceContext && !!layout.result && !!result && !!bom.result && archive.selection?.jobRole === "main" && archive.selection.masterRole === "main",
+    original: archive.archiveReview, selection: archive.selection, file: archive.archiveFile, layout: layout.file, placement: file, bom: bom.file, visual, publish: setNativeFinding });
   const stage = busy ? "Processing source" : error ? "Import needs attention" : result ? result.status === "success" ? "Placement parsing complete" : "Placement review needs attention" : preview ? "Mapping needs validation" : file ? "Ready to read" : "No source loaded";
-  return { sourceContext, sourceRegistration, setSourceRegistration, originReview, setOriginReview, generatedArchive, candidateWorkBusy, setCandidateWorkBusy, layout, comparisons, bom, attachments, setAttachments, buildProjectBlob, nativePreparation, setNativePreparation, repair, setRepair, file, preview, result, config, sheet, delimiter, busy, error, selectedRow, notes, notice, stage, edit, changeFile, changeSheet, changeDelimiter, reset, cancel, run, download, setSelectedRow, editNote, saveReview, saveProject, openReview, projectEvidence, ...archive, changeArchive: changeBaseline, returnedArchive, eagleVersion, setEagleVersion, qualification, gerber };
+  const visualSource = JSON.stringify([result?.sourceSha256 ?? "", result?.interpretationSha256 ?? "", archive.archiveReview?.preflight.source.sha256 ?? "", archive.archiveReview?.preflight.selection.job.sha256 ?? "", gerber.result?.source_sha256 ?? "", sourceContext ?? ""]);
+  useEffect(() => {
+    visual.observe("Source geometry", result ? JSON.stringify([result.sourceSha256, result.interpretationSha256]) : "", visualSource, `${result?.counts.parsed ?? 0} source records parsed; ${result?.placements.filter(p => p.xMm !== null && p.yMm !== null).length ?? 0} have normalized coordinates.`, result?.counts.parsed ?? null);
+    visual.observe("Gerber geometry", gerber.result ? JSON.stringify([gerber.result.source_sha256, gerber.result.coordinate_format, gerber.result.interpretation_overrides]) : "", visualSource, gerber.result?.geometry_complete ? "Supported Gerber primitives decoded in their own frame." : "Gerber interpretation held; inspect the parser evidence.", gerber.result?.objects.length ?? null, gerber.result?.geometry_complete ? "completed" : "held");
+    visual.observe("Registration", gerber.alignment?.fingerprint ?? "", visualSource, gerber.alignment?.status === "success" ? "Fit and independent check residuals passed. This registers only the selected CAD/Gerber scope." : "Registration controls need attention.", gerber.alignment?.residuals.length ?? null, gerber.alignment?.status === "success" ? "completed" : "held");
+    visual.observe("Native baseline", archive.archiveReview?.preflight.packageSha256 ?? "", visualSource, "Selected native snapshot freshly parsed; source preservation verified. Teaching and machine compatibility remain unverified.", archive.archiveReview?.preflight.nativeRecords.job?.records.filter(r => r.kind === "part-record").length ?? null);
+    visual.observe("Review decisions", repair.request ? JSON.stringify(repair.request.acceptances) : "", visualSource, `${repair.request?.acceptances.filter(a => a.decision === "accepted").length ?? 0} scalar proposals accepted; acceptance alone writes nothing.`, repair.request?.proposals.length ?? null);
+    const last = repair.history.at(-1);
+    visual.observe("Candidate receipt", last?.id ?? "", visualSource, `Historical package receipt retained: ${last?.candidateSha256 ?? ""}. This observation does not execute a new write; inspection readiness is unverified.`, last?.request.acceptances.filter(a => a.decision === "accepted").length ?? null);
+    const prepared = nativePreparation.history.at(-1);
+    visual.observe("Preparation receipt", prepared?.id ?? "", visualSource, "Retained receipt records disabled qualification preparations. No new preparation executes on reopening; binding and teaching remain machine work.", prepared?.accepted.length ?? null);
+  }, [visual.observe, visualSource, result, gerber.result, gerber.alignment, archive.archiveReview, repair.request, repair.history, nativePreparation.history]);
+  return { nativeAnalysis, candidatePreservation, nativeFinding, setNativeFinding, visual, visualSource, nativeDiagnosis, setNativeDiagnosis, sourceContext, sourceRegistration, setSourceRegistration, originReview, setOriginReview, generatedArchive, candidateWorkBusy: candidateWorkBusy || candidatePreservation.busy, setCandidateWorkBusy, layout, comparisons, bom, attachments, setAttachments, buildProjectBlob, nativePreparation, setNativePreparation, repair, setRepair, file, preview, result, config, sheet, delimiter, busy, error, selectedRow, notes, notice, stage, edit, changeFile, changeSheet, changeDelimiter, reset, cancel, run, download, setSelectedRow, editNote, saveReview, saveProject, openReview, projectEvidence, ...archive, changeArchive: changeBaseline, returnedArchive, eagleVersion, setEagleVersion, qualification, gerber };
 }
 
 const ScanSessionContext = createContext<ReturnType<typeof usePlacementSession> | null>(null);

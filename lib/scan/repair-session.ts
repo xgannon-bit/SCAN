@@ -1,4 +1,5 @@
 import { validateNativePreparationSession, type NativePreparationSession } from "./native-preparation-session";
+import { validateNativeDiagnosisContext, type NativeDiagnosisContext } from "./native-placement-diagnosis";
 export type RepairComposition = Pick<NativePreparationSession["history"][number], "review" | "reviewer" | "accepted" | "packageProfiles">;
 export type RepairProposal = { id: string; path: string; identity: Record<"ID" | "ParentId" | "MasterKey" | "RefID", string>; before: string; after: string; evidenceIds: string[]; dependencyProposalIds?: string[]; beforeRoi?: Record<"cx" | "cy" | "w" | "h" | "a", string> };
 export type RepairRequest = {
@@ -8,6 +9,7 @@ export type RepairRequest = {
   evidence: { id: string; summary: string; kind?: "historical-replay" | "independent-source-support"; independentSupport: boolean; references: { sha256: string; label: string }[] }[];
   proposals: RepairProposal[];
   acceptances: { proposalId: string; proposalSha256: string; decision: "pending" | "accepted" | "rejected"; reviewer: string }[];
+  diagnosis?: NativeDiagnosisContext;
 };
 export type RepairSession = {
   sourceContext?: string;
@@ -40,6 +42,7 @@ export function validateRepairSession(value: unknown): RepairSession {
     if (!r || r.artifactType !== "scan.qualification-patch-request" || r.schemaVersion !== "1" || r.purpose !== "qualification-only" || !hash(r.source?.archiveSha256) || !hash(r.source?.jobSha256) || !Array.isArray(r.proposals) || r.proposals.length > 256 || !Array.isArray(r.acceptances) || !Array.isArray(r.evidence) || JSON.stringify(r).length > 1_000_000) throw new Error("Invalid saved repair request. No authority was restored.");
     const text = (value: unknown, maximum = 2048) => typeof value === "string" && value.length <= maximum && !value.includes("\0");
     if (!text(r.reviewer, 256) || !text(r.trialPurpose) || !text(r.source.jobMember) || !text(r.source.root) || r.source.jobRole !== "main") throw new Error("Invalid saved repair scope.");
+    if (r.diagnosis) { validateNativeDiagnosisContext(r.diagnosis); if (!r.diagnosis.diagnosisSha256) throw new Error("Saved derived proposals require the frozen finding hash."); }
     if (["masterMember", "masterSha256", "masterRole"].some(k => Object.hasOwn(r.source, k)) && (!text(r.source.masterMember) || !r.source.masterMember || !hash(r.source.masterSha256) || r.source.masterRole !== "main")) throw new Error("Invalid saved repair Master scope.");
     const ids = new Set(r.proposals.map(p => p?.id));
     if (ids.size !== r.proposals.length) throw new Error("Repeated saved proposal identity.");

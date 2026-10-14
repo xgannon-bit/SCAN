@@ -1,4 +1,5 @@
 "use client";
+import { WriterProgress } from "./WriterProgress";
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -8,12 +9,14 @@ import { buildSourceCrosswalk } from "@/lib/scan/source-crosswalk";
 import { Button } from "@/components/ui/button";
 import { useScanSession } from "./ScanSession";
 import { downloadJson } from "@/lib/scan/review-session";
+import { repairIsFresh, decideProposalGroup, nativeEntities } from "@/lib/scan/visual-workspace";
 import { repairProposalGroups, type RepairProposal, type RepairRequest } from "@/lib/scan/repair-session";
 import { RepairImpact } from "./RepairImpact";
 import { readComposedCandidateWork, readGeneratedCandidate } from "@/lib/scan/engineering-candidate-work";
 import { preparationWork, preparationWorkCsv } from "@/lib/scan/preparation-work";
 import { buildOfflineReviewEvidence } from "@/lib/scan/offline-review-evidence";
 import { compositionDecisionContext, preparationNeedsRecompute } from "@/lib/scan/composition-context";
+import { appendDiagnosisSources } from "@/lib/scan/native-placement-diagnosis";
 
 export function RepairReview() {
   const session = useScanSession();
@@ -21,6 +24,7 @@ export function RepairReview() {
   const preflight = archiveReview?.preflight;
   const records = preflight?.nativeRecords.job?.records.filter(record => record.kind === "part-record") ?? [];
   const [selected, setSelected] = useState("");
+  useEffect(() => { const part = nativeEntities(preflight).find(p => p.key === session.visual.view.selected); if (part?.path) setSelected(part.path); }, [preflight, session.visual.view.selected]);
   const [field, setField] = useState("Roi/cx");
   const [after, setAfter] = useState("");
   const [afterY, setAfterY] = useState("");
@@ -43,7 +47,7 @@ export function RepairReview() {
   const peers = records.filter(record => record !== part && record.rawFields.RefID?.length === 1 && record.rawFields.ParentId?.length === 1 && record.rawFields.RefID[0] === scalar("RefID") && record.rawFields.ParentId[0] === scalar("ParentId"));
   const retainedPart = peers.find(record => record.sourcePath === retained);
   const req = repair.request;
-  const fresh = !!req && req.source.archiveSha256 === preflight?.source.sha256 && req.source.jobSha256 === preflight?.selection.job.sha256 && req.source.jobMember === selection?.jobMember && (!req.source.masterMember || (req.source.masterMember === preflight?.selection.master?.member && req.source.masterSha256 === preflight.selection.master.sha256 && preflight.selection.master.role === "main")) && selection?.jobRole === "main" && !!session.sourceContext && (!repair.sourceContext || repair.sourceContext === session.sourceContext);
+  const fresh = repairIsFresh(repair, preflight, selection, session.sourceContext);
   const accepted = fresh ? req!.acceptances.filter(value => value.decision === "accepted").length : 0;
   const readOnly = !preflight || selection?.jobRole !== "main";
   const verificationBusy = session.candidateWorkBusy || session.generatedArchive.archiveBusy;
@@ -57,6 +61,7 @@ export function RepairReview() {
     const form = new FormData();
     form.set("file", archiveFile); form.set("action", action); form.set("expectedArchiveSha256", archiveReview.preflight.source.sha256);
     form.set("expectedPackageSha256", archiveReview.capture.packageSha256); form.set("selection", JSON.stringify(selection));
+    appendDiagnosisSources(form, request.diagnosis, { layout: session.layout.file, placement: session.file, bom: session.bom.file });
     if (action === "repair-export" && preparationNeedsRecompute(preparation, preflight?.source.sha256)) throw new Error("This source has earlier accepted preparation but its current review was cleared. Recompute preparation before export; prior parts will not be silently omitted.");
     if (action === "repair-export" && preparationAccepted.length) {
       if (!preparationFresh || !session.layout.file || !session.layout.result || !preparation.reviewer.trim()) throw new Error("Accepted native preparation is stale or lacks its source layout. Recompute it before composing this candidate; accepted parts will not be silently omitted.");
@@ -66,7 +71,7 @@ export function RepairReview() {
       layoutSha256: session.layout.result!.sourceSha256, reviewDigest: preparation.review!.digest,
       accepted: preparationAccepted, reviewer: preparation.reviewer,
       ...(preparation.packageProfiles?.length ? { packageProfiles: preparation.packageProfiles } : {}) } } : {}) } : {}) }));
-    return fetch("/api/archive", { method: "POST", body: form });
+    return action === "repair-export" ? session.visual.fetchArchive(form, undefined, session.sourceContext ?? "") : fetch("/api/archive", { method: "POST", body: form });
   }
   async function review(draft: RepairRequest) {
     if (!session.sourceContext) return setMessage("Source hashes are still being checked; try again shortly.");
@@ -83,11 +88,12 @@ export function RepairReview() {
         return previous ? { ...value, decision: previous.decision } : value;
       });
       setRepair(old => ({ ...old, sourceContext: session.sourceContext!, request: checked })); setReviewer(checked.reviewer);
-      setMessage("Source, exact identity, before-values and supported paths checked. Historical replay and operator-declared evidence do not establish an automatic diagnosis or physical correctness. Review each proposal below.");
+      setMessage(checked.diagnosis ? "Independent source diagnosis was freshly reproduced, with exact identity and before-values checked. Review the experimental placement edit below; complete inspection repair and physical correctness remain held." : "Source, exact identity, before-values and supported paths checked. Historical replay and operator-declared evidence do not establish an automatic diagnosis or physical correctness. Review each proposal below.");
     } catch (error) { setMessage(error instanceof Error ? error.message : "Review failed."); }
     finally { setWorking(false); }
   }
   async function add() {
+    if (req?.diagnosis) return setMessage("This set is bound to independently derived findings. Use the diagnosis panel to add derived rows, or clear this set before creating a separate manual trial.");
     if (!preflight || !part || !reviewer.trim() || !evidence.trim() || !/^[a-f0-9]{64}$/.test(referenceHash)) return setMessage("Select a placement, name the reviewer and add a supporting evidence file with a specific explanation.");
     if (field === "ENABLE" && (!retainedPart || retainedPart.rawFields.ENABLE?.join() !== "True")) return setMessage("Select an enabled retained placement in the same module/reference. Matching reference text alone does not prove redundancy.");
     if (!preflight.selection.master || preflight.selection.master.role !== "main") return setMessage("Select and preflight the matching main Master snapshot before adding a new guarded placement proposal. Temp/backup Masters cannot substitute for it.");
@@ -108,6 +114,7 @@ export function RepairReview() {
   async function generate() {
     if (!req || !fresh || !ack || !accepted) return;
     const scope = currentScope; const request = structuredClone(req);
+    const visualRun = session.visual.begin("Candidate build", session.visualSource, "Rechecking accepted proposals and writing a separate qualification candidate.");
     setWorking(true); setMessage("");
     try {
       const response = await call("repair-export", request);
@@ -138,12 +145,13 @@ export function RepairReview() {
       if (scopeRef.current !== scope) throw new Error("Sources or exact reviewed decisions changed during export; no download or new history was recorded. Review and retry.");
       const url = URL.createObjectURL(bundle); const anchor = document.createElement("a");
       anchor.href = url; anchor.download = `SCAN-QUALIFICATION-ONLY-${id.slice(0, 8)}.zip`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+      session.visual.finish(visualRun, "completed", "Exact candidate package hash verified; qualification bundle assembled.", accepted);
       setRepair(old => ({ ...old, history: [...old.history, revision] }));
       void session.generatedArchive.restoreArchive(candidate, new AbortController().signal);
       setMessage(`${accepted} accepted scalar change(s) and ${preparationAccepted.length} accepted disabled preparations packaged in one complete native copy. Generated package hash verified; browser download requested. The project retains both reviewed sets and this combined revision. Binding, inspection repair and Eagle compatibility remain unverified.`);
       setAck(false);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Export failed."); }
-    finally { setWorking(false); }
+    } catch (error) { session.visual.finish(visualRun, "failed", error instanceof Error ? error.message : "Export failed."); setMessage(error instanceof Error ? error.message : "Export failed."); }
+    finally { session.visual.finish(visualRun, "cancelled", "Candidate operation ended without recording a new receipt."); setWorking(false); }
   }
 
   return <div className="scan-content-stack"><section className="scan-review-controls">
@@ -173,7 +181,7 @@ export function RepairReview() {
     {repairProposalGroups(req).map(group => {
       const proposal = group[0], ids = group.map(p => p.id), decisions = req.acceptances.filter(a => ids.includes(a.proposalId));
       const decision = decisions.length === ids.length && decisions.every(a => a.decision === decisions[0].decision) ? decisions[0].decision : "pending";
-      const change = (next: "pending" | "accepted" | "rejected") => { setAck(false); setRepair(old => ({ ...old, request: old.request && { ...old.request, acceptances: old.request.acceptances.map(value => ids.includes(value.proposalId) ? { ...value, decision: next } : value) } })); };
+      const change = (next: "pending" | "accepted" | "rejected") => { setAck(false); setRepair(old => ({ ...old, request: old.request && decideProposalGroup(old.request, group, next) })); };
       const basis = req.evidence.filter(e => group.some(p => p.evidenceIds.includes(e.id)));
       const samePlacement = group.every(p => JSON.stringify(p.identity) === JSON.stringify(proposal.identity));
       return <article key={proposal.id}><h3>{proposal.identity.RefID} · module {proposal.identity.ParentId} · ID {proposal.identity.ID}</h3>
@@ -182,7 +190,7 @@ export function RepairReview() {
         <p>Master {proposal.identity.MasterKey} preserved. Protected: unrelated coordinates, limits, images, OCR, fiducials, calibration and unknown fields. Binding/dependent-window effects remain unresolved.</p>
         {samePlacement ? <RepairImpact sourcePath={proposal.path.split("]/", 1)[0] + "]"} field={proposal.path.split("]/")[1]} after={proposal.after} afterFields={Object.fromEntries(group.map(p => [p.path.split("]/")[1], p.after]))} /> : group.map(p => <RepairImpact key={p.id} sourcePath={p.path.split("]/", 1)[0] + "]"} field={p.path.split("]/")[1]} after={p.after} />)}
         {proposal.beforeRoi && <p>Guarded original ROI: X {proposal.beforeRoi.cx}, Y {proposal.beforeRoi.cy}, width {proposal.beforeRoi.w}, height {proposal.beforeRoi.h}, angle {proposal.beforeRoi.a}. Only listed changed fields will be written.</p>}
-        {basis.map(e => <div key={e.id}><p><strong>{e.kind === "historical-replay" ? "Historical replay — physical correctness unproven" : "Operator-declared source support — not independently diagnosed"}</strong>. {e.summary}</p>{e.references.map((r, i) => <p key={`${r.sha256}:${i}`}>{r.label}: <code>{r.sha256}</code></p>)}</div>)}
+        {basis.map(e => <div key={e.id}><p><strong>{req?.diagnosis ? "Independently derived placement experiment — complete repair held" : e.kind === "historical-replay" ? "Historical replay — physical correctness unproven" : "Operator-declared source support — not independently diagnosed"}</strong>. {e.summary}</p>{e.references.map((r, i) => <p key={`${r.sha256}:${i}`}>{r.label}: <code>{r.sha256}</code></p>)}</div>)}
         <label className="scan-field">Decision<select aria-label={`Decision ${proposal.id}`} value={decision} disabled={working || verificationBusy || !fresh || decisions.length !== ids.length} onChange={event => change(event.target.value as "pending" | "accepted" | "rejected")}><option value="pending">Pending</option><option value="accepted">Accept for isolated qualification only</option><option value="rejected">Reject</option></select></label>
         <Button variant="outline" disabled={working || verificationBusy || !fresh || decision === "pending"} onClick={() => change("pending")}>Undo decision {proposal.identity.RefID} / {proposal.identity.ID}</Button>
       </article>;

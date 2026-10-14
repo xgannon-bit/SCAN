@@ -1,4 +1,5 @@
 "use client";
+import { WriterProgress } from "./WriterProgress";
 import Link from "next/link";
 import { validatePackageProfiles } from "@/lib/scan/package-profiles";
 import { previousPreparationDecisions } from "@/lib/scan/native-preparation-session";
@@ -53,7 +54,7 @@ export function NativePreparationReview() {
       form.set("action", "repair-export");
       form.set("repair", JSON.stringify({ request: repair, preparation: reviewedPreparation, acknowledgement: "QUALIFICATION ONLY" }));
     } else form.set("draft", JSON.stringify(preparation));
-    return fetch("/api/archive", { method: "POST", body: form, signal: abort.signal });
+    return action === "draft-export" ? session.visual.fetchArchive(form, abort.signal, session.sourceContext ?? "") : fetch("/api/archive", { method: "POST", body: form, signal: abort.signal });
   }
   async function analyze() {
     if (!canReview) return;
@@ -75,6 +76,7 @@ export function NativePreparationReview() {
   }
   async function generate() {
     if (!fresh || !accepted.length || !ack || !saved.reviewer.trim() || saved.history.length >= 50) return;
+    const visualRun = session.visual.begin("Part preparation build", session.visualSource, "Building the exact accepted disabled component preparations.");
     const start = exportScope, abort = new AbortController(); controller.current = abort; setBusy(true); setMessage("");
     try {
       const response = await call("draft-export", { reviewDigest: review!.digest, accepted, reviewer: saved.reviewer.trim(), acknowledgement: "QUALIFICATION ONLY" }, abort);
@@ -110,11 +112,12 @@ export function NativePreparationReview() {
       void session.generatedArchive.restoreArchive(candidate, new AbortController().signal);
       if (combined) session.setRepair(nextRepair);
       const url = URL.createObjectURL(bundle), a = document.createElement("a"); a.href = url; a.download = `SCAN-PREPARED-PARTS-QUALIFICATION-${id.slice(0, 8)}.zip`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+      session.visual.finish(visualRun, "completed", "Accepted disabled preparations packaged; candidate hash verified.", accepted.length);
       setAck(false); setMessage(`${accepted.length} parts prepared as disabled placements, local Masters and linked windows in a separate complete native copy.${combined ? ` ${scalarRequest!.acceptances.filter(a => a.decision === "accepted").length} separately accepted scalar trials included in the same candidate.` : ""} ${candidateWork.counts.preparedWithPartialWindows} have explicitly partial windows and unfinished window work. Package hash verified; generated candidate is being reanalyzed separately from the original. Download requested with exact change log, full component accounting, remaining Athena work and reopenable project. Eagle and inspection behavior remain unverified.`);
-    } catch (error) { if (!abort.signal.aborted) setMessage(error instanceof Error ? error.message : "Preparation export failed."); }
-    finally { if (controller.current === abort) { controller.current = null; setBusy(false); } }
+    } catch (error) { session.visual.finish(visualRun, abort.signal.aborted ? "cancelled" : "failed", error instanceof Error ? error.message : "Preparation export failed."); if (!abort.signal.aborted) setMessage(error instanceof Error ? error.message : "Preparation export failed."); }
+    finally { session.visual.finish(visualRun, "cancelled", "Preparation operation ended without a new receipt."); if (controller.current === abort) { controller.current = null; setBusy(false); } }
   }
-  return <section className="scan-panel scan-panel-body" id="native-preparation" aria-label="Native part preparation">
+  return <section className="scan-panel scan-panel-body" id="native-preparation" aria-label="Native part preparation"><WriterProgress events={session.visual.view.events} />
     <h2>Prepare missing native parts</h2>
     <details><summary>Starter-job requirements and current limits</summary>
       <p>A scanned starter is the intended starting point. Today, template preparation still needs a compatible placement and model in the selected job. Package constructors derive new geometry but require an existing placement, local Master and suitable body/terminal windows as a native field-format seed. CAD-only starters without these records cannot yet create native models.</p>

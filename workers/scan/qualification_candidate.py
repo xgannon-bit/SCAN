@@ -84,6 +84,8 @@ def proposal_digest(request, proposal):
     bound = {key: request[key] for key in ('purpose', 'source', 'targetEagleBuild', 'targetMachine', 'reviewer', 'trialPurpose')}
     bound.update(artifactType='scan.qualification-proposal', schemaVersion='1', proposal=proposal,
                  evidence=[evidence[key] for key in sorted(proposal['evidenceIds'])])
+    if 'diagnosis' in request:
+        bound['diagnosis'] = request['diagnosis']
     return sha256(_canonical(bound)).hexdigest()
 
 
@@ -92,7 +94,12 @@ def _request(value):
     if len(raw) > 1_000_000:
         _fail('REQUEST_LIMIT', 'Qualification request exceeds its 1 MB bound.')
     value = json.loads(raw)
-    _object(value, _REQUEST_KEYS)
+    _object(value, _REQUEST_KEYS | ({'diagnosis'} if 'diagnosis' in value else set()))
+    if 'diagnosis' in value:
+        # Structural validation and digest binding only. The browser adapter
+        # independently reparses all sources and verifies every derived scalar.
+        from .native_placement_diagnosis import validate_context
+        validate_context(value['diagnosis'], require_digest=True)
     if value['artifactType'] != 'scan.qualification-patch-request' or value['schemaVersion'] != '1' or value['purpose'] != 'qualification-only':
         _fail('INVALID_REQUEST', 'Only the explicit qualification-only request is supported.')
     source = value['source']
@@ -288,7 +295,7 @@ def _xml(raw, *, supported_versions=('10.2',)):
     return leaves, part_paths, ambiguous_ancestors
 
 
-def _patch_xml(raw, patches):
+def _patch_xml(raw, patches, *, progress=False):
     leaves, parts, ambiguous_ancestors = _xml(raw, supported_versions=('10.1', '10.2'))
     version = leaves['JobContainer/JobXmlVersion'][0]['literal']
     identities = defaultdict(list)
@@ -366,6 +373,15 @@ def _patch_xml(raw, patches):
             _fail('INVARIANT_FAILED', 'A scalar outside the accepted changes differed after patching.')
     # The only byte construction is unchanged slices plus the exact accepted
     # replacements. No XML serializer can reorder or discard unknown content.
+    if progress:
+        from .component_progress import component_checked
+        groups = {}
+        for patch in patches:
+            if 'beforeRoi' in patch and patch['path'].endswith(('/Roi/cx', '/Roi/cy')):
+                groups.setdefault(patch['path'].rsplit('/Roi/', 1)[0], patch)
+        for part, patch in groups.items():
+            after = {key: after_leaves[part + '/Roi/' + key][0]['literal'] for key in ('cx', 'cy', 'w', 'h', 'a')}
+            component_checked('placement-checked', patch['identity'], patch['beforeRoi'], after)
     return changed
 
 
@@ -502,7 +518,7 @@ def create_qualification_candidate(source_path, destination_path, request, *, ca
                             before_hash = sha256(raw).hexdigest()
                             if before_hash != expected['jobSha256']:
                                 _fail('STALE_JOB', 'Selected job bytes differ from the accepted job hash.')
-                            changed = _patch_xml(raw, approved_proposals)
+                            changed = _patch_xml(raw, approved_proposals, progress=True)
                             if _patch_xml(changed, reverse_proposals(approved_proposals)) != raw:
                                 _fail('ROLLBACK_FAILED', 'Reversing exact accepted leaves did not recover the original selected XML.')
                             output.writestr(copy(info), changed)

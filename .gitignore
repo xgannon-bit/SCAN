@@ -12,6 +12,7 @@ node_modules/
 .next-evaluation/
 .next-development/
 .next-placement-repair/
+.next-independent-diagnosis/
 out/
 dist/
 build/
@@ -61,3 +62,17 @@ logs/
 !tests/synthetic/**/*.csv
 !tests/synthetic/**/*.xml
 !tests/synthetic/**/*.json
+
+.next-visual-rebuild/
+
+.next-visual-processing/
+
+/.next-full-board/
+
+/.next-board-evidence/
+/.next-board-evidence-r02/
+/.next-image-first/
+
+/.next-image-registration/
+
+.next-image-registration-r02/

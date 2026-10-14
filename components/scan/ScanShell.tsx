@@ -23,7 +23,8 @@ export function ScanShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { file, preview, result, stage, archiveFile, archiveReview, archiveBusy, gerber, layout, bom } = useScanSession();
   const heading = screens.find(screen => screen.href === pathname)?.label ?? "SCAN";
-  return <div className="scan-app">
+  const visual = pathname === "/workspace";
+  return <div className={`scan-app ${visual ? "scan-visual-shell" : ""}`}>
     <a className="scan-skip-link" href="#scan-content">Skip to workspace</a>
     <aside className="scan-sidebar" aria-label="Primary navigation">
       <div className="scan-brand">
@@ -45,19 +46,20 @@ export function ScanShell({ children }: { children: React.ReactNode }) {
             <TooltipTrigger render={<Button variant="ghost" size="icon" aria-label="Capability details" />}><Info aria-hidden="true" /></TooltipTrigger>
             <TooltipContent>Placement intake and source review work locally. Native analysis and reviewed qualification candidates are available; Eagle compatibility and inspection behavior remain unverified.</TooltipContent>
           </Tooltip>
-          <Link className={buttonVariants()} href="/intake"><FileSpreadsheet aria-hidden="true" />{file ? "Continue intake" : "Import placement file"}</Link>
+          <Link className={buttonVariants()} href="/intake"><FileSpreadsheet aria-hidden="true" />{file ? "Continue intake" : "Import job / sources"}</Link>
         </div>
       </header>
-      <div className="scan-session-strip" aria-label="Current source"><strong>{file?.name ?? archiveFile?.name ?? layout.file?.name ?? bom.file?.name ?? gerber.file?.name ?? "No source loaded"}</strong><span>{file ? stage : archiveBusy ? "Processing archive" : archiveReview ? "Archive integrity verified; native preparation held" : archiveFile ? "Archive selected" : layout.busy || bom.busy ? "Reading preparation sources" : layout.result || bom.result ? "Source preparation available; native job not attached" : layout.file || bom.file || gerber.file ? "Preparation source selected" : stage}</span></div>
+      {!visual && <><div className="scan-session-strip" aria-label="Current source"><strong>{file?.name ?? archiveFile?.name ?? layout.file?.name ?? bom.file?.name ?? gerber.file?.name ?? "No source loaded"}</strong><span>{file ? stage : archiveBusy ? "Processing archive" : archiveReview ? "Archive integrity verified; native preparation held" : archiveFile ? "Archive selected" : layout.busy || bom.busy ? "Reading preparation sources" : layout.result || bom.result ? "Source preparation available; native job not attached" : layout.file || bom.file || gerber.file ? "Preparation source selected" : stage}</span></div>
       <div className="scan-safety-banner" role="status" aria-label="Native capability status"><strong>Offline evaluation — machine qualification pending.</strong><span>{gerber.alignment?.status === "success" ? "CAD/Gerber control checks passed. Native job construction and Eagle/Athena compatibility remain required." : "Review CAD/Gerber alignment, native job construction and Eagle/Athena compatibility before machine use."}</span></div>
       <nav className="scan-workflow" aria-label="Import Review Export">
         <Link href="/intake" className={`scan-workflow-step ${pathname === "/intake" ? "current" : ""}`}><span>01</span><strong>Import</strong><small>Job copy and useful source files</small></Link>
         <Link href="/findings" className={`scan-workflow-step ${["/findings", "/workspace", "/repair"].includes(pathname) ? "current" : ""}`}><span>02</span><strong>Review</strong><small>Source issues, geometry and exact proposals</small></Link>
         <Link href="/handoff" className={`scan-workflow-step ${pathname === "/handoff" ? "current" : ""}`}><span>03</span><strong>Export</strong><small>Project, handoff or qualification candidate</small></Link>
       </nav>
-      <ReviewControls />
+      </>}
+      <ReviewControls compact={visual} />
       {children}
-      <footer className="scan-session-note">Unsaved work stays in this tab. Save project before refreshing or closing to retain native sources, mappings, repair decisions, candidate revision receipts and work observations.</footer>
+      {!visual && <footer className="scan-session-note">Unsaved work stays in this tab. Save project before refreshing or closing to retain native sources, mappings, repair decisions, candidate revision receipts and work observations.</footer>}
     </main>
   </div>;
 }

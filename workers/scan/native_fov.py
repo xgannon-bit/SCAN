@@ -4,6 +4,7 @@ Saved camera IDs, path IDs and assignment literals remain separate observations.
 No nearest-center heuristic, pixel calibration or qualified FOV writer is supplied.
 """
 from hashlib import sha256
+from collections import defaultdict, Counter
 import json
 import re
 from xml.etree import ElementTree as ET
@@ -17,6 +18,7 @@ def fov_assignments(job, source_context):
               'status': 'unavailable', 'assignments': [], 'cameraRecords': [], 'counts': None,
               'nativeAssignmentWritten': False, 'coverageQualified': False,
               'limitations': ['An assignment literal does not prove camera ID/index semantics, enabled traversal or image-channel availability.',
+                  'Camera Id and PathId are separate observed domains. Conflicting candidate centers and Enb/ENABLE literals remain unresolved; neither domain is silently chosen.',
                   'Body, search and terminal-window coverage require calibrated usable acquisition extents, margins and qualified native transforms.',
                   'Nearest saved camera center is an assignment heuristic only; no FOV or binding fields are written.']}
     try:
@@ -58,8 +60,47 @@ def fov_assignments(job, source_context):
                 if len(cameras) >= 10000:
                     raise ValueError('camera limit')
                 cameras.append({'sourcePath': f'JobContainer/FovSetInfo/Fov[{fov_ordinal}]/FovInfo[{ordinal}]',
-                    'rawFields': {key: literals(node, key) for key in ('Id', 'C', 'PathId', 'CtnMdID', 'ENABLE')},
+                    'rawFields': {key: literals(node, key) for key in ('Id', 'C', 'PathId', 'CtnMdID', 'Enb', 'ENABLE')},
                     'coordinateFrame': 'unqualified', 'usableAcquisitionArea': 'unknown'})
+        domains = {field: defaultdict(list) for field in ('Id', 'PathId')}
+        for camera in cameras:
+            fields = camera['rawFields']
+            observation = {'sourcePath': camera['sourcePath'], 'centerLiterals': fields['C'],
+                'moduleLiterals': fields['CtnMdID'], 'enableLiterals': fields['Enb'],
+                'legacyEnableLiterals': fields['ENABLE'],
+                'domainLiteralState': 'unique-plain-literals' if len(fields['Id']) == len(fields['PathId']) == 1 else 'missing-or-repeated-literals'}
+            for field in domains:
+                # Every observed identity is retained. A repeated scalar cannot
+                # be silently discarded to manufacture a unique candidate.
+                for value in dict.fromkeys(fields[field]):
+                    domains[field][value].append(observation)
+        states = Counter()
+        for assignment in assignments:
+            candidates = []
+            for literal in assignment['assignedLiterals']:
+                ids = domains['Id'].get(literal['value'], [])
+                paths = domains['PathId'].get(literal['value'], [])
+                if len(ids) > 64 or len(paths) > 64:
+                    raise ValueError('camera candidate limit')
+                if len(ids) > 1 or len(paths) > 1 or any(c['domainLiteralState'] != 'unique-plain-literals' for c in ids+paths):
+                    state = 'ambiguous-repeated-domain-literal'
+                elif ids and paths:
+                    state = 'same-record-in-both-observed-domains' if ids[0]['sourcePath'] == paths[0]['sourcePath'] else 'conflicting-domain-candidates'
+                elif ids:
+                    state = 'id-literal-only-candidate'
+                elif paths:
+                    state = 'path-id-literal-only-candidate'
+                else:
+                    state = 'no-literal-domain-candidate'
+                states[state] += 1
+                candidates.append({**literal, 'idMatches': ids, 'pathIdMatches': paths, 'state': state,
+                    'chosenDomain': None, 'coverage': 'unverified'})
+            assignment['cameraDomainCandidates'] = candidates
+        result['domainReviewCounts'] = dict(states)
+        result['requiredEvidence'] = [
+            'One isolated before/after native job with a known placement-to-camera assignment, exact Eagle build/schema and machine identity, resolving whether FovList refers to Id, PathId or another domain.',
+            'A separate observed camera enable/traversal example resolving Enb and any legacy ENABLE field; saved Boolean text is not execution proof.',
+            'Usable acquisition extents, pixel calibration, channels, margins and source/module/image frames before any body or inspection-window coverage claim.']
         result.update(status='recorded', sourceContext=context, assignments=assignments, cameraRecords=cameras,
             counts={'placements': len(assignments), 'empty': sum(r['assignmentState'] == 'empty' for r in assignments),
                 'assigned': sum(r['assignmentState'] == 'literal-assignment-present' for r in assignments),
@@ -72,4 +113,5 @@ def fov_assignments(job, source_context):
         result.update(status='unavailable', assignments=[], cameraRecords=[], counts=None,
                       reason='FOV assignment observations require supported bounded selected XML and an exact source hash; no partial coverage claim is made.')
         result.pop('sourceContext', None)
+        result.pop('domainReviewCounts', None)
         return result

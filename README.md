@@ -4,6 +4,15 @@
 
 A local-first engineering companion for automated optical inspection programming.
 
+The [image-first workspace](docs/image-first.md) now inventories preserved board
+photos, selected Master model references and held pattern assets. Original pixels
+support zoom/pan/fit and saved viewing context, with no engineering overlays on
+unregistered images. Exact native MasterKey/PartCode correspondences provide
+separately labelled model references. The separate [image registration build](docs/image-registration.md)
+adds a source-bound control/check wizard, reviewed native ROI overlays, component
+crops and real processing/replay on supported photography. Actual R04 physical
+registration, inspection-window/binding semantics and Eagle qualification remain held.
+
 ## Current status
 
 Locally runnable offline evaluation app. [Import → Review → Export](docs/evaluation-guide.md)

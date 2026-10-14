@@ -1,6 +1,7 @@
 import type { ArchiveReview } from "./archive-types";
 import type { RepairRequest } from "./repair-session";
 import { repairImpact } from "./repair-impact";
+import type { NativeDiagnosisReport } from "./native-placement-diagnosis";
 
 const one = (fields: Record<string, string[]>, key: string) => fields[key]?.length === 1 ? fields[key][0] : null;
 const keys = ["ParentId", "RefID", "ID", "MasterKey"] as const;
@@ -8,7 +9,7 @@ const canonical = (value: unknown): string => JSON.stringify(value, (_, v) => v 
 const equal = (left: unknown, right: unknown) => canonical(left) === canonical(right);
 
 /** Re-read actual native records and file hashes. Saved decisions cannot assert completion. */
-export function candidateRepairWork(original: ArchiveReview, candidate: ArchiveReview, request: RepairRequest, freshlyReproducedJobSha256: string) {
+export function candidateRepairWork(original: ArchiveReview, candidate: ArchiveReview, request: RepairRequest, freshlyReproducedJobSha256: string, freshlyReproducedDiagnosis?: NativeDiagnosisReport) {
   const before = original.preflight, after = candidate.preflight;
   const refuse = (condition: unknown, reason: string) => { if (!condition) throw new Error(reason); };
   refuse(before.source.sha256 === request.source.archiveSha256 && before.selection.job.sha256 === request.source.jobSha256 && before.selection.root === request.source.root && before.selection.job.member === request.source.jobMember && before.selection.job.role === "main", "Repair history does not match this original main snapshot and source hashes.");
@@ -33,6 +34,10 @@ export function candidateRepairWork(original: ArchiveReview, candidate: ArchiveR
   const accepted = request.proposals.filter(p => request.acceptances.some(a => a.proposalId === p.id && a.decision === "accepted"));
   refuse(accepted.length > 0, "No accepted repair exists in this candidate history.");
   const acceptedIds = new Set(accepted.map(p => p.id));
+  if (request.diagnosis) {
+    refuse(freshlyReproducedDiagnosis?.artifactType === "scan.native-placement-diagnosis" && freshlyReproducedDiagnosis.diagnosisSha256 === request.diagnosis.diagnosisSha256 && freshlyReproducedDiagnosis.source.archiveSha256 === request.source.archiveSha256 && freshlyReproducedDiagnosis.source.jobSha256 === request.source.jobSha256 && !freshlyReproducedDiagnosis.frame.holds.length, "Source-derived completion requires a freshly reproduced matching diagnosis; saved prose or hash alone is not authority.");
+    for (const p of accepted) refuse(freshlyReproducedDiagnosis!.rows.some(r => !r.holds.length && equal(r.identity, p.identity) && r.proposals.some(v => `${r.sourcePath}/${v.field}` === p.path && v.before === p.before && v.after === p.after)), "Candidate scalar differs from its freshly reproduced source finding.");
+  }
   refuse(accepted.every(p => (p.dependencyProposalIds ?? []).every(id => acceptedIds.has(id))), "An accepted placement edit is missing a required axis.");
   const expected = structuredClone(baseline);
   for (const proposal of accepted) {
@@ -61,16 +66,17 @@ export function candidateRepairWork(original: ArchiveReview, candidate: ArchiveR
     const fovFields = Object.fromEntries(Object.entries(matching.rawFields).filter(([k]) => /^(FovList|SubFovNum|FovOPT)(\/|$)/.test(k)));
     const fov = after.nativeFovAssignments?.assignments.find(a => a.sourcePath === matching.sourcePath);
     return { identity: p.identity, changes: group.map(v => ({ proposalId: v.id, path: v.path, before: v.before, after: v.after })),
-      evidence, basis: evidence.every(e => e.kind === "historical-replay") ? "historical-replay" : "operator-declared-unqualified",
-      diagnosis: "not-independently-established", literalEnable: one(matching.rawFields, "ENABLE"),
+      evidence, basis: request.diagnosis ? "independent-source-derived-experiment" : evidence.every(e => e.kind === "historical-replay") ? "historical-replay" : "operator-declared-unqualified",
+      diagnosis: request.diagnosis ? "source-derived-experimental-placement; physical correctness unverified" : "not-independently-established", literalEnable: one(matching.rawFields, "ENABLE"),
       windows: impact?.windows ?? [], sharedPlacements: impact?.scopePlacements ?? [], masterMatch: impact?.masterMatch ?? "unavailable",
       bindingState: "preserved-unqualified", bindingSegments: impact?.bindingObservations.length ?? 0,
-      fov: { fields: fovFields, assignment: fov?.assignmentState ?? "not-observed", assignedLiterals: fov?.assignedLiterals ?? [], coverage: "unverified" },
+      fov: { fields: fovFields, assignment: fov?.assignmentState ?? "not-observed", assignedLiterals: fov?.assignedLiterals ?? [], cameraDomainCandidates: fov?.cameraDomainCandidates ?? [], nativeIdMeaning: "unqualified", coverage: "unverified" },
       remaining: ["Verify Eagle open/save/reopen preserves the exact ROI and untouched stored center.", "Verify physical body/pad alignment against independent board evidence; replay is not a diagnosis.", "Verify every linked Master/window and binding dependency; unchanged bytes do not prove unchanged runtime behavior.", "Verify acquisition coverage of the component and all inspection windows; a camera assignment is not coverage.", "Retain existing teaching and enabled states while performing the controlled machine trial; do not blanket-enable drafts."],
     };
   });
   return { artifactType: "scan.reanalyzed-placement-repair", schemaVersion: "1", originalSha256: before.source.sha256, candidateSha256: after.source.sha256,
     schemaClaim: after.nativeRecords.job.schemaVersionClaim, acceptedScalarCount: accepted.length, placementEditGroups: edits,
     preservedFiles: before.preservedFiles.length - 1, masterBytesPreserved: before.selection.master ? true : null, actualCandidateRecordsVerified: true, independentlyDiagnosedCorrections: 0,
+    independentlyDerivedPlacementExperiments: request.diagnosis ? edits.length : 0, diagnosisSha256: request.diagnosis?.diagnosisSha256 ?? null,
     inspectionRepairEstablished: false, eagleOpenSaveReopen: "not-performed", productionRelease: "not-granted" };
 }

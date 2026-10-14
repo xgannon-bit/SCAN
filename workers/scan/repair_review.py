@@ -14,6 +14,7 @@ import zipfile
 
 from .qualification_candidate import _request, _patch_xml, proposal_digest, create_qualification_candidate, verify_guarded_master
 from .snapshot_capture import CaptureBlocked
+from .placement_intake import IntakeError
 
 
 def review_request(source, review, draft):
@@ -117,11 +118,24 @@ def _software_identity():
     return {'commit': revision, 'workingTreeModified': bool(status) if status is not None else None,
             'adapter': 'browser-qualification-2', 'writer': 'qualification-byte-patch-3',
             'codeSha256': {name: sha256((root / 'workers' / 'scan' / name).read_bytes()).hexdigest()
-                           for name in ('repair_review.py', 'qualification_candidate.py', 'archive_browser_cli.py')}}
+                           for name in ('repair_review.py', 'qualification_candidate.py', 'archive_browser_cli.py',
+                                        'repair_composition.py', 'native_placement_diagnosis.py', 'origin_evidence.py',
+                                        'accel_ascii.py', 'placement_intake.py', 'bom_intake.py',
+                                        'paired_terminal_constructor.py', 'diode_constructor.py', 'three_terminal_constructor.py',
+                                        'physical_terminal_constructor.py', 'thermal_terminal_constructor.py',
+                                        'native_preparation.py', 'native_model_geometry.py', 'native_window_subset.py',
+                                        'native_record_insertion.py', 'disabled_draft.py', 'native_records.py', 'native_bindings.py',
+                                        'native_pad_binding.py', 'native_fov.py', 'snapshot_capture.py')}}
 
 
-def run(source, review, control, layout_path=None):
+def run(source, review, control, layout_path=None, diagnosis_input=None):
     try:
+        diagnosis_report = None
+        diagnosis_receipt = None
+        if isinstance(control.get('request'), dict) and 'diagnosis' in control['request']:
+            from .native_placement_diagnosis import diagnose_files, verify_request
+            diagnosis_report = diagnose_files(source, review, control['request']['diagnosis'], diagnosis_input)
+            diagnosis_receipt = verify_request(control['request'], diagnosis_report)
         checked = review_request(source, review, control['request'])
         if control['action'] == 'repair-review':
             expected_job = None
@@ -133,12 +147,14 @@ def run(source, review, control, layout_path=None):
                 expected_job = sha256(_patch_xml(original, [p for p in accepted_request['proposals'] if p['id'] in accepted_ids])).hexdigest()
             return {'status': 'success', 'artifactType': 'scan.repair-review', 'request': checked,
                     'expectedAcceptedJobSha256': expected_job,
-                    'machineExportAllowed': False, 'evidenceAuthority': 'Historical replay or caller-declared support; no automatic diagnosis or physical correctness established.'}
+                    **({'diagnosis': diagnosis_report, 'diagnosisReceipt': diagnosis_receipt} if diagnosis_report else {}),
+                    'machineExportAllowed': False, 'evidenceAuthority': 'Fresh source-derived experimental geometry; native runtime and physical correctness remain unverified.' if diagnosis_report else 'Historical replay or caller-declared support; no automatic diagnosis or physical correctness established.'}
         if control.get('acknowledgement') != 'QUALIFICATION ONLY':
             raise CaptureBlocked('ACKNOWLEDGEMENT_REQUIRED', 'Acknowledge qualification-only export and unresolved binding/inspection behavior.')
         if 'preparation' in control:
             from .repair_composition import compose_preparation
-            return compose_preparation(source, layout_path, review, control)
+            return compose_preparation(source, layout_path, review, control,
+                                       diagnosis_report=diagnosis_report, diagnosis_receipt=diagnosis_receipt)
         request = control['request']
         result = create_qualification_candidate(source, Path(source).parent / 'result.scan-qualification.zip', request)
         if result['status'] != 'success':
@@ -203,6 +219,12 @@ def run(source, review, control, layout_path=None):
                          'baseline/native-accounting.json': baseline.get('nativeAccounting'),
                          'baseline/native-fov-assignments.json': baseline.get('nativeFovAssignments'),
                          'repair-request.json': request}
+            if diagnosis_report:
+                accepted_ids = {a['proposalId'] for a in request['acceptances'] if a['decision'] == 'accepted'}
+                accepted = [p for p in request['proposals'] if p['id'] in accepted_ids]
+                documents['independent-placement-diagnosis.json'] = diagnosis_report
+                documents['independent-diagnosis-receipt.json'] = {**diagnosis_receipt,
+                    'acceptedScalars': len(accepted), 'acceptedPlacementGroups': len({p['path'].rsplit('/Roi/', 1)[0] for p in accepted})}
             for name, document in documents.items():
                 bundle.writestr(name, json.dumps(document, ensure_ascii=True, indent=2))
             bundle.writestr('component_coverage.csv', _csv(accounting.get('componentCoverage', [])))
@@ -217,5 +239,7 @@ def run(source, review, control, layout_path=None):
                 'candidateSha256': result['candidate']['sha256'], 'sourceSha256': baseline['source']['sha256']}
     except CaptureBlocked as error:
         return {'status': 'blocked', 'code': error.code, 'reason': str(error), 'machineExportAllowed': False}
+    except IntakeError:
+        return {'status': 'blocked', 'code': 'DIAGNOSIS_INTAKE', 'reason': 'Diagnosis source mapping, units or format are malformed or unsupported; no source contents were logged and no candidate published.', 'machineExportAllowed': False}
     except (KeyError, TypeError, ValueError):
         return {'status': 'blocked', 'code': 'INVALID_REPAIR_REQUEST', 'reason': 'Invalid bounded repair request; no candidate published.', 'machineExportAllowed': False}

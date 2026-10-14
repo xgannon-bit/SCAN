@@ -157,6 +157,7 @@ test('combined project restores source hashes, mappings, selected row and freshl
   await page.getByRole('button', { name: 'Read Gerber', exact: true }).click();
   await expect(page.getByText('Gerber geometry parsed', { exact: true })).toBeVisible();
   await nav(page, 'Board workspace').click();
+  await page.getByRole('button', { name: 'Engineering tools', exact: true }).click();
   await page.getByLabel('Placement module and side').selectOption('["FICTIONAL-PROJECT","Top"]');
   await page.getByLabel('Gerber board instance').fill('Authored project board');
   await page.getByLabel('Allowed residual (mm)').fill('0.02');
@@ -167,6 +168,7 @@ test('combined project restores source hashes, mappings, selected row and freshl
   }
   await page.getByRole('button', { name: 'Fit and check alignment' }).click();
   await expect(page.getByRole('heading', { name: 'Alignment checks passed' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close engineering tools' }).click();
   await page.getByLabel('Placement to inspect').selectOption('3');
   await page.getByLabel('Placement review note').fill('Preserve exact authored row three.');
   await nav(page, 'Job dashboard').click();
@@ -198,12 +200,14 @@ test('combined project restores source hashes, mappings, selected row and freshl
   await nav(page, 'Board workspace').click();
   await expect(page.getByLabel('Placement to inspect')).toHaveValue('3');
   await expect(page.getByLabel('Placement review note')).toHaveValue(record.notes['row:3']);
+  await page.getByRole('button', { name: 'Engineering tools', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Alignment checks passed' })).toBeVisible();
   await expect(page.getByLabel('Placement module and side')).toHaveValue('["FICTIONAL-PROJECT","Top"]');
   await expect(page.getByLabel('Gerber board instance')).toHaveValue('Authored project board');
   await expect(page.getByLabel('Allowed residual (mm)')).toHaveValue('0.02');
   await expect(page.getByLabel('Physical match evidence · point 4')).toHaveValue('Authored independent feature 4');
   await expect(page.getByLabel('Gerber X mm · point 4', { exact: true })).toHaveValue('89');
+  await page.getByRole('button', { name: 'Close engineering tools' }).click();
   await nav(page, 'Source intake').click();
   await expect(page.getByLabel('CSV delimiter')).toHaveValue(';');
   await expect(page.getByLabel('Module for this sheet')).toHaveValue('FICTIONAL-PROJECT');

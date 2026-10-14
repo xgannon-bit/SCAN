@@ -6,6 +6,7 @@ import { candidatePreparationWork, type CandidatePreparationEvidence } from "@/l
 import { preparationWorkCsv } from "@/lib/scan/preparation-work";
 import { downloadJson } from "@/lib/scan/review-session";
 import { CandidateRepairPanel } from "./CandidateRepairPanel";
+import { appendDiagnosisSources } from "@/lib/scan/native-placement-diagnosis";
 
 export function CandidateWorkPanel() {
   const session = useScanSession(), generated = session.generatedArchive;
@@ -32,13 +33,19 @@ export function CandidateWorkPanel() {
         const response = await fetch("/api/archive", { method: "POST", body: form, signal: abort.signal }); const evidence = await response.json();
         if (!response.ok || evidence.artifactType !== "scan.native-preparation-review") throw new Error(evidence.reason ?? evidence.message ?? "Preparation evidence could not be reproduced.");
         if (evidence.plan.source.jobSha256 !== original.preflight.selection.job.sha256 || evidence.plan.source.masterSha256 !== original.preflight.selection.master?.sha256 || evidence.plan.source.layoutSha256 !== session.layout.result!.sourceSha256) throw new Error("Recomputed preparation evidence has different sources.");
+        if (selected.request?.diagnosis) {
+          const diagnosisForm = new FormData(); diagnosisForm.set("file", session.archiveFile!); diagnosisForm.set("action", "repair-review"); diagnosisForm.set("expectedArchiveSha256", original.preflight.source.sha256); diagnosisForm.set("expectedPackageSha256", original.capture.packageSha256); diagnosisForm.set("selection", JSON.stringify(session.selection)); diagnosisForm.set("repair", JSON.stringify({ request: selected.request }));
+          appendDiagnosisSources(diagnosisForm, selected.request.diagnosis, { layout: session.layout.file, placement: session.file, bom: session.bom.file });
+          const diagnosisResponse = await fetch("/api/archive", { method: "POST", body: diagnosisForm, signal: abort.signal }), diagnosis = await diagnosisResponse.json();
+          if (!diagnosisResponse.ok || diagnosis.status !== "success" || diagnosis.diagnosis?.diagnosisSha256 !== selected.request.diagnosis.diagnosisSha256) throw new Error(diagnosis.reason ?? diagnosis.message ?? "Combined candidate source diagnosis could not be freshly reproduced.");
+        }
         const rebuilt = candidatePreparationWork(original, candidate, session.bom.result, evidence as CandidatePreparationEvidence, selected.accepted, selected.request, session.layout.result);
-        if (!abort.signal.aborted) setWork(rebuilt);
+        if (!abort.signal.aborted) { setWork(rebuilt); session.visual.observe("Preparation read-back", candidate.preflight.source.sha256 + authority, session.visualSource, "Actual candidate models and component work rebuilt from original evidence; disabled teaching and machine qualification remain pending.", selected.accepted.length); }
       } catch (failure) { if (!abort.signal.aborted) setError(failure instanceof Error ? failure.message : "Candidate work could not be rebuilt."); }
       finally { if (!abort.signal.aborted) setBusy(false); }
     })();
     return () => abort.abort();
-  }, [ready, original, candidate, authority, session.layout.file, session.layout.result, session.bom.result, session.archiveFile, session.selection]);
+  }, [ready, original, candidate, authority, session.layout.file, session.layout.result, session.bom.file, session.bom.result, session.file, session.archiveFile, session.selection]);
   if (!generated.archiveFile) return <section className="scan-panel scan-panel-body" id="candidate-work" aria-label="Generated candidate and remaining work"><h2>Generated candidate and remaining work</h2><p>Export accepted preparation or an independently reviewed repair below. SCAN keeps the generated job separate from the original, reparses it and shows what remains for each component.</p></section>;
   async function retry() {
     if (!generated.archiveFile || !generated.selection) return;
@@ -52,6 +59,7 @@ export function CandidateWorkPanel() {
     <h2>Generated candidate and remaining work</h2>
     <p><strong>Original baseline:</strong> {session.archiveFile?.name}. <strong>Separate generated candidate:</strong> {generated.archiveFile.name}. This is an offline qualification copy, not a job returned from Eagle.</p>
     <p>{generated.archiveBusy ? "Reanalyzing the actual generated archive and selected snapshots…" : candidate ? "Generated candidate reanalysis complete. Fresh native records and dependencies are available." : "Generated candidate reanalysis needs attention; completion has not been established."}</p>
+    {candidate?.preflight.nativeFovAssignments?.domainReviewCounts && <p>Camera assignments were checked in both saved Id and PathId domains. {Object.entries(candidate.preflight.nativeFovAssignments.domainReviewCounts).map(([key, count]) => `${key}: ${count}`).join("; ")}. These observations grant no pad ownership, acquisition coverage or enabled traversal. Qualify the assignment domain and usable acquisition area in Eagle.</p>}
     {generated.archiveError && <p role="alert">{generated.archiveError}</p>}
     {!generated.archiveBusy && !candidate && <Button onClick={() => void retry()}>Retry generated candidate analysis</Button>}
     {busy && <p role="status">Rebuilding preparation evidence against the original and actual candidate records…</p>}

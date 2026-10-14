@@ -1,6 +1,7 @@
+import { processingDecoder, type startProcessing } from "./processing-journal";
 import { spawn } from "node:child_process";
 import { createReadStream } from "node:fs";
-import { mkdtemp, writeFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { Readable } from "node:stream";
 import path from "node:path";
@@ -8,7 +9,7 @@ import { reserveWorker } from "./worker-budget";
 import type { ArchiveReview } from "./archive-types";
 
 const headers = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
-export async function archiveWorker(bytes: Buffer, control: Record<string, unknown>, signal: AbortSignal, reservedRelease?: () => void, layoutBytes?: Buffer): Promise<Response> {
+export async function archiveWorker(bytes: Buffer, control: Record<string, unknown>, signal: AbortSignal, reservedRelease?: () => void, layoutBytes?: Buffer, diagnosisSources?: { placement: Buffer; bom: Buffer; layoutName: string; placementName: string; bomName: string }, progress?: ReturnType<typeof startProcessing>): Promise<Response> {
   const release = reservedRelease ?? reserveWorker("archive");
   const temporaryRoot = path.resolve(tmpdir());
   const ownedPath = (candidate: string) => path.dirname(path.resolve(candidate)) === temporaryRoot && path.basename(candidate).startsWith("scan-archive-");
@@ -28,18 +29,27 @@ export async function archiveWorker(bytes: Buffer, control: Record<string, unkno
     const source = path.join(directory, "source.zip");
     await writeFile(source, bytes, { flag: "wx", mode: 0o600 });
     let layoutSource: string | undefined;
-    if (String(control.action).startsWith("draft-") || (control.action === "repair-export" && (control.repair as Record<string, unknown>)?.preparation)) {
+    if (diagnosisSources || String(control.action).startsWith("draft-") || (control.action === "repair-export" && (control.repair as Record<string, unknown>)?.preparation)) {
       if (!layoutBytes?.length || layoutBytes.length > 8_000_000) throw new Error("Archive preparation requires a source layout no larger than 8 MB.");
       layoutSource = path.join(directory, "layout.pcb");
       await writeFile(layoutSource, layoutBytes, { flag: "wx", mode: 0o600 });
     }
-    const request = JSON.stringify({ ...control, protocolVersion: "1", source, ...(layoutSource ? { layoutSource } : {}) });
+    let diagnosisInput: Record<string, string> | undefined;
+    if (diagnosisSources) {
+      if ([diagnosisSources.placement, diagnosisSources.bom].some(b => !b.length || b.length > 8_000_000)) throw new Error("Archive diagnosis sources exceed their bounds.");
+      const placementSource = path.join(directory, "placement.input"), bomSource = path.join(directory, "bom.input");
+      await writeFile(placementSource, diagnosisSources.placement, { flag: "wx", mode: 0o600 });
+      await writeFile(bomSource, diagnosisSources.bom, { flag: "wx", mode: 0o600 });
+      diagnosisInput = { layoutSource: layoutSource!, placementSource, bomSource, layoutName: diagnosisSources.layoutName, placementName: diagnosisSources.placementName, bomName: diagnosisSources.bomName };
+    }
+    const standaloneLayout = String(control.action).startsWith("draft-") || (control.action === "repair-export" && (control.repair as Record<string, unknown>)?.preparation);
+    const request = JSON.stringify({ ...control, protocolVersion: "1", source, ...(layoutSource && standaloneLayout ? { layoutSource } : {}), ...(diagnosisInput ? { diagnosisInput } : {}) });
     if (Buffer.byteLength(request) > 1_100_000) throw new Error("Archive selection is too large.");
     const interpreter = process.env.SCAN_PYTHON || path.join(process.cwd(), ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
     const result = await new Promise<Record<string, unknown>>((resolve, reject) => {
       const child = spawn(/* turbopackIgnore: true */ interpreter, ["-m", "workers.scan.archive_browser_cli"], {
         cwd: process.cwd(), shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"],
-        env: { ...process.env, PYTHONUTF8: "1", TEMP: directory, TMP: directory, TMPDIR: directory },
+        env: { ...process.env, PYTHONUTF8: "1", SCAN_COMPONENT_PROGRESS: progress ? "1" : "0", TEMP: directory, TMP: directory, TMPDIR: directory },
       });
       const chunks: Buffer[] = []; let size = 0, failure: string | undefined;
       const stop = (message: string) => { failure = message; child.kill(); };
@@ -47,7 +57,9 @@ export async function archiveWorker(bytes: Buffer, control: Record<string, unkno
       const timer = setTimeout(() => stop("Archive import exceeded its 120-second limit."), 120_000);
       signal.addEventListener("abort", abort, { once: true }); if (signal.aborted) abort();
       child.stdout.on("data", (chunk: Buffer) => { size += chunk.length; if (size > 24_000_000) stop("Archive result exceeds its output limit."); else chunks.push(chunk); });
-      child.stderr.on("data", () => { /* Private source diagnostics never enter the host log. */ });
+      const decodeProgress = processingDecoder(value => progress?.record(value));
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", decodeProgress);
       child.stdin.on("error", () => {});
       child.once("error", () => { failure = "Local Python worker is unavailable. Check the checkout's .venv."; });
       child.once("close", code => {
@@ -61,6 +73,12 @@ export async function archiveWorker(bytes: Buffer, control: Record<string, unkno
       });
       child.stdin.end(request);
     });
+    if (control.action === "image" && result.status === "success") {
+      const imagePath = path.join(directory, "result.image"), info = await stat(imagePath);
+      if (result.artifactType !== "scan.preserved-image" || result.registration !== "unregistered" || result.sourceSha256 !== control.expectedArchiveSha256 || result.member !== control.imageMember || !["image/png", "image/jpeg", "image/bmp"].includes(String(result.mime)) || !/^[a-f0-9]{64}$/.test(String(result.sha256)) || !info.isFile() || info.size !== result.size || info.size > 32_000_000 || Number(result.width) * Number(result.height) > 80_000_000) throw new Error("Archive image metadata does not match the selected preserved source.");
+      const image = await readFile(imagePath);
+      return new Response(image, { headers: { ...headers, "Content-Type": String(result.mime), "Content-Length": String(info.size), "X-SCAN-SHA256": String(result.sha256), "X-SCAN-Source-SHA256": String(result.sourceSha256), "X-SCAN-Image-Width": String(result.width), "X-SCAN-Image-Height": String(result.height), "X-SCAN-Registration": "unregistered" } });
+    }
     if (!["download", "reference", "repair-export", "draft-export"].includes(String(control.action)) || result.status !== "success") return Response.json(result, { headers });
     const review = result as unknown as ArchiveReview;
     const reference = control.action === "reference";
@@ -93,5 +111,5 @@ export async function archiveWorker(bytes: Buffer, control: Record<string, unkno
     });
     streaming = true;
     return new Response(body, { headers: { ...headers, "Content-Type": "application/octet-stream", "Content-Length": String(info.size), "Content-Disposition": `attachment; filename="${engineering ? "scan-engineering-QUALIFICATION-ONLY.zip" : reference ? "scan-preserved-native-reference.zip" : "scan-source.scan-snapshot"}"`, "X-SCAN-SHA256": payload!.sha256, "X-SCAN-Source-SHA256": engineering ? String(result.sourceSha256) : review.preflight.source.sha256, "X-SCAN-Native-Edits": engineering ? "qualification-only" : "none", ...(engineering ? { "X-SCAN-Candidate-SHA256": String(result.candidateSha256) } : {}) } });
-  } finally { if (!streaming) await dispose(); }
+  } finally { progress?.end(); if (!streaming) await dispose(); }
 }

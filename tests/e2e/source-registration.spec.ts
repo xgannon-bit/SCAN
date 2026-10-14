@@ -15,7 +15,7 @@ test('source-origin registration reviews real parsed correspondences and restore
   await page.goto('/intake');
   await page.getByLabel('Saved placement review file', { exact: true }).setInputFiles({ name: 'authored.scan-project.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(project)) });
   await expect(page.getByRole('status').filter({ hasText: /(?:Project|Review) reopened\./ })).toBeVisible();
-  await page.getByRole('navigation', { name: 'SCAN screens' }).getByRole('link', { name: 'Board workspace', exact: true }).click();
+  await page.getByRole('navigation', { name: 'SCAN screens' }).getByRole('link', { name: 'Board workspace', exact: true }).click(); await page.getByRole('button',{name:'Engineering tools',exact:true}).click(); await page.getByRole('navigation',{name:'Engineering tool selection'}).getByRole('button',{name:'Source registration',exact:true}).click();
   const section = page.locator('#source-registration');
   await section.getByRole('combobox', { name: 'Source to review', exact: true }).selectOption('primary');
   await section.getByRole('combobox', { name: 'Target frame', exact: true }).selectOption('comparison:0');
@@ -36,7 +36,7 @@ test('source-origin registration reviews real parsed correspondences and restore
   const corrected = JSON.parse(await readFile((await (await downloading).path())!, 'utf-8'));
   expect(corrected.placements).toHaveLength(5); expect(corrected.machineExportAllowed).toBe(false); expect(corrected.nativeEditsApplied).toBe(false);
   corrected.placements.forEach((p: { x: number; y: number }, i: number) => { expect(p.x).toBeCloseTo(-positions[i][1] + 21, 8); expect(p.y).toBeCloseTo(positions[i][0] - 4, 8); });
-  const saving = page.waitForEvent('download'); await page.getByRole('button', { name: 'Save project', exact: true }).click();
+  const saving = page.waitForEvent('download'); await page.getByRole('button', { name: 'Close engineering tools' }).click(); await page.getByRole('button', { name: 'Save project', exact: true }).click();
   const saved = await readFile((await (await saving).path())!); const parsed = JSON.parse(saved.toString());
   expect(parsed.sourceRegistration.decision.choice).toBe('accepted'); expect(parsed.sourceRegistration).not.toHaveProperty('transform');
   expect(parsed.placement.source).toEqual(project.placement.source); expect(parsed.comparisons[0].source).toEqual(project.comparisons[0].source);
@@ -44,7 +44,7 @@ test('source-origin registration reviews real parsed correspondences and restore
   await page.reload(); await page.goto('/intake');
   await page.getByLabel('Saved placement review file', { exact: true }).setInputFiles({ name: 'reopened.scan-project.json', mimeType: 'application/json', buffer: saved });
   await expect(page.getByRole('status').filter({ hasText: /(?:Project|Review) reopened\./ })).toBeVisible();
-  await page.getByRole('navigation', { name: 'SCAN screens' }).getByRole('link', { name: 'Board workspace', exact: true }).click();
+  await page.getByRole('navigation', { name: 'SCAN screens' }).getByRole('link', { name: 'Board workspace', exact: true }).click(); await page.getByRole('button',{name:'Engineering tools',exact:true}).click(); await page.getByRole('navigation',{name:'Engineering tool selection'}).getByRole('button',{name:'Source registration',exact:true}).click();
   await expect(section.getByRole('status')).toContainText('Current source decision: accepted');
   await expect(section.getByRole('button', { name: 'Download corrected source placement', exact: true })).toBeEnabled();
   await section.getByLabel('source revision', { exact: true }).fill('2');

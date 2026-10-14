@@ -7,6 +7,7 @@ import re
 import sys
 
 from .worker_cli import dispatch as core_dispatch, MAX_REQUEST_BYTES
+from .snapshot_capture import CaptureBlocked
 
 
 def blocked(code, reason):
@@ -21,8 +22,13 @@ def dispatch(request):
               'preflight': {'protocolVersion', 'action', 'source', 'expectedArchiveSha256', 'selection'},
               'download': {'protocolVersion', 'action', 'source', 'expectedArchiveSha256', 'selection', 'expectedPackageSha256'}}
     fields['reference'] = fields['download']
+    fields['image'] = fields['download'] | {'imageMember'}
+    fields['image-catalog'] = fields['download']
     for repair_action in ('repair-review', 'repair-export'):
         fields[repair_action] = fields['download'] | {'repair'}
+        if isinstance(request.get('repair'), dict) and isinstance(request['repair'].get('request'), dict) and 'diagnosis' in request['repair']['request']:
+            fields[repair_action] |= {'diagnosisInput'}
+    fields['placement-diagnosis'] = fields['download'] | {'diagnosis', 'diagnosisInput'}
     if action == 'repair-export' and isinstance(request.get('repair'), dict) and 'preparation' in request['repair']:
         fields['repair-export'] = fields['repair-export'] | {'layoutSource'}
     for draft_action in ('draft-review', 'draft-export'):
@@ -35,7 +41,7 @@ def dispatch(request):
     if action == 'inventory':
         return core_dispatch({'protocolVersion': '1', 'action': 'inventory', 'source': source})
     expected_package = request.get('expectedPackageSha256')
-    if action in ('download', 'reference', 'repair-review', 'repair-export', 'draft-review', 'draft-export') and (not isinstance(expected_package, str) or not re.fullmatch(r'[a-f0-9]{64}', expected_package)):
+    if action in ('download', 'reference', 'image', 'image-catalog', 'repair-review', 'repair-export', 'draft-review', 'draft-export', 'placement-diagnosis') and (not isinstance(expected_package, str) or not re.fullmatch(r'[a-f0-9]{64}', expected_package)):
         return blocked('INVALID_REQUEST', 'A previously verified capture hash is required for download.')
     destination = Path(source).parent / 'result.scan-snapshot'
     capture = core_dispatch({'protocolVersion': '1', 'action': 'capture', 'source': source, 'destination': str(destination),
@@ -48,17 +54,37 @@ def dispatch(request):
                             'expectedPackageSha256': capture['package_sha256']})
     if report['status'] != 'success':
         return report
-    if action in ('download', 'reference', 'repair-review', 'repair-export', 'draft-review', 'draft-export') and capture['package_sha256'] != expected_package:
+    if action in ('download', 'reference', 'image', 'image-catalog', 'repair-review', 'repair-export', 'draft-review', 'draft-export', 'placement-diagnosis') and capture['package_sha256'] != expected_package:
         return blocked('CAPTURE_CHANGED', 'Recreated snapshot differs from the reviewed capture. Run preflight again.')
     review = {'status': 'success', 'code': 'ARCHIVE_PREFLIGHT_RECORDED', 'artifactType': 'scan.archive-review', 'schemaVersion': '1',
             'capture': {'snapshotId': capture['snapshot_id'], 'packageSha256': capture['package_sha256'], 'size': destination.stat().st_size},
             'preflight': report, 'machineExportAllowed': False, 'candidateId': None}
+    if action == 'image-catalog':
+        from .image_catalog import catalog_images
+        try:
+            return catalog_images(source, report)
+        except (ValueError, KeyError, OSError):
+            return blocked('IMAGE_CATALOG_HELD', 'Catalog differs from the selected preserved snapshot or exceeds its bounds.')
+    if action == 'image':
+        from .visual_image import read_preserved_image
+        try:
+            return read_preserved_image(source, report, request['imageMember'])
+        except (ValueError, KeyError, OSError):
+            return blocked('IMAGE_HELD', 'Image is unsupported, exceeds preview bounds or differs from the selected preserved snapshot. PNG, JPEG and BMP only; maximum 32 MB / 80 megapixels. No registration inferred.')
     if action == 'reference':
         from .native_reference import prepare_reference
         review['reference'] = prepare_reference(source, Path(source).parent / 'result.native-reference.zip', review)
+    if action == 'placement-diagnosis':
+        from .native_placement_diagnosis import diagnose_files
+        try:
+            return diagnose_files(source, review, request['diagnosis'], request['diagnosisInput'])
+        except CaptureBlocked as error:
+            return blocked(error.code, str(error))
+        except Exception:
+            return blocked('DIAGNOSIS_INPUT', 'Source interpretation is malformed or unsupported; no native proposal was published.')
     if action in ('repair-review', 'repair-export'):
         from .repair_review import run
-        return run(source, review, {**request['repair'], 'action': action}, request.get('layoutSource'))
+        return run(source, review, {**request['repair'], 'action': action}, request.get('layoutSource'), request.get('diagnosisInput'))
     if action in ('draft-review', 'draft-export'):
         from .native_preparation_review import run
         return run(source, request['layoutSource'], review, {**request['draft'], 'action': action})

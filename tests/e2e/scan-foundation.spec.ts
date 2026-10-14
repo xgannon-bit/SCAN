@@ -21,7 +21,7 @@ test("foundation: truthful capabilities, primitives, focus and loopback assets",
   }
   await expect(page.locator('[data-slot="separator"]')).toHaveCSS("height", "1px");
   await expect(page.locator('[data-slot="badge"]').first()).toHaveCSS("display", "flex");
-  await expect(page.getByRole("link", { name: "Import placement file", exact: true })).toHaveCSS("background-color", "rgb(56, 189, 248)");
+  await expect(page.getByRole("link", { name: "Import job / sources", exact: true })).toHaveCSS("background-color", "rgb(56, 189, 248)");
   await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "Skip to workspace" })).toBeFocused();
   await page.keyboard.press("Tab");

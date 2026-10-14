@@ -2,13 +2,17 @@ import type { NativeAccounting } from "./native-accounting";
 import type { NativeInspectionWork } from "./native-inspection-work";
 import type { NativeDuplicateReview } from "./native-duplicate-review";
 export type SnapshotRole = "main" | "temp" | "backup";
+export type CameraDomainCandidate = { field: string; value: string; state: string; chosenDomain: null; coverage: "unverified";
+  idMatches: { sourcePath: string; centerLiterals: string[]; moduleLiterals: string[]; enableLiterals: string[]; legacyEnableLiterals: string[]; domainLiteralState: string }[];
+  pathIdMatches: { sourcePath: string; centerLiterals: string[]; moduleLiterals: string[]; enableLiterals: string[]; legacyEnableLiterals: string[]; domainLiteralState: string }[] };
 export type NativeFovAssignments = {
   artifactType: "scan.native-fov-assignments"; schemaVersion: "1"; status: "recorded" | "unavailable";
   assignments: { sourcePath: string; identity: Record<string, string[] | undefined>; assignmentState: "empty" | "literal-assignment-present" | "unresolved";
-    assignedLiterals: { field: string; value: string }[]; coverage: "unverified"; nativeIdMeaning: "unqualified"; enabledExecution: "unverified" }[];
+    assignedLiterals: { field: string; value: string }[]; cameraDomainCandidates?: CameraDomainCandidate[]; coverage: "unverified"; nativeIdMeaning: "unqualified"; enabledExecution: "unverified" }[];
   cameraRecords: { sourcePath: string; rawFields: Record<string, string[]> }[];
   counts?: { placements: number; empty: number; assigned: number; unresolved: number; cameraRecords: number; coverageVerified: 0 } | null;
   nativeAssignmentWritten: false; coverageQualified: false;
+  domainReviewCounts?: Record<string, number>;
 };
 export type LiteralDependencyReport = {
   artifactType: "scan.native-literal-dependencies"; schemaVersion: "1"; interpretation: "exact-source-string-correspondence-only"; detailLimit?: string;

@@ -1,0 +1,39 @@
+import { test, expect, type Page } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import { encodeProject } from '../../lib/scan/project-session';
+import { emptyVisualWorkspace } from '../../lib/scan/visual-workspace';
+import { acceptImageReview, imageRequestFingerprint, type ImageRegistrationState } from '../../lib/scan/image-registration';
+import { authoredMapping, sha } from '../synthetic-image-registration.mjs';
+
+async function open(page:Page,kind:'partial'|'bound'|'evidence'|'pixel'|'flag'|'legacy'='partial') {
+  const data=await authoredMapping(),f=data.fixture;let state=data.state as ImageRegistrationState;
+  if(kind==='partial')state.request.points[0].pixel=null;
+  else if(['bound','evidence','pixel'].includes(kind)){state=acceptImageReview(state,await imageRequestFingerprint(state.request));if(kind==='evidence')state.request.points[0].evidence+=' externally changed';if(kind==='pixel')state.request.points[3].pixel![0]+=.1;}
+  else state.decision='reviewed';
+  const v=emptyVisualWorkspace();v.frame='image';v.image={archiveSha256:sha(f.bytes),member:f.image.member};v.imageRegistration=state;
+  const b=await encodeProject({placement:null,gerber:null,original:{file:new File([new Uint8Array(f.bytes)],'SYNTHETIC-IR-R02.zip'),selection:f.selection,draft:{root:f.selection.root,job:JSON.stringify({member:f.selection.jobMember,role:'main'}),master:JSON.stringify({member:f.selection.masterMember,role:'main'})}},returned:null,notes:{},machineVersion:'',visualWorkspace:v});
+  await page.goto('/workspace');await page.getByLabel('Saved placement review file',{exact:true}).setInputFiles({name:'SYNTHETIC-IR-R02.json',mimeType:'application/json',buffer:Buffer.from(await b.arrayBuffer())});await expect(page.getByRole('status').filter({hasText:'Project reopened.'})).toBeVisible();await expect(page.getByTestId('preserved-scan-image')).toBeVisible();await page.getByRole('button',{name:'Image mapping',exact:true}).click();return data;
+}
+async function saved(page:Page){const d=page.waitForEvent('download');await page.getByRole('button',{name:'Save project',exact:true}).click();return JSON.parse((await readFile((await(await d).path())!)).toString());}
+test('IR-01 X-only/Y-only/cleared axes stay unknown; explicit zero and photo picking remain exact',async({page},info)=>{
+  test.setTimeout(120000);const data=await open(page);await page.getByRole('button',{name:'2 Correspondences',exact:true}).click();
+  await page.getByLabel('Control 1 pixel X').fill('100');await expect(page.getByLabel('Control 1 pixel Y')).toHaveValue('');let dto=await saved(page);expect(dto.visualWorkspace.imageRegistration.request.points[0].pixel).toBeNull();expect(dto.visualWorkspace.imageRegistration.draftPixels['control-1']).toEqual(['100','']);
+  await page.getByLabel('Control 1 pixel X').fill('');await page.getByLabel('Control 1 pixel Y').fill('100');await expect(page.getByLabel('Control 1 pixel X')).toHaveValue('');dto=await saved(page);expect(dto.visualWorkspace.imageRegistration.request.points[0].pixel).toBeNull();
+  await page.getByLabel('Control 1 pixel X').fill('0');dto=await saved(page);expect(dto.visualWorkspace.imageRegistration.request.points[0].pixel).toEqual([0,100]);
+  await page.getByLabel('Control 1 pixel Y').fill('');await expect(page.getByLabel('Control 1 pixel X')).toHaveValue('0');dto=await saved(page);expect(dto.visualWorkspace.imageRegistration.request.points[0].pixel).toBeNull();await page.screenshot({path:info.outputPath('SYNTHETIC-partial-pixel-unknown.png'),fullPage:true});
+  await page.getByRole('button',{name:'3 Check / review',exact:true}).click();await page.getByRole('button',{name:'Calculate image registration',exact:true}).click();await expect(page.getByLabel('Image registration wizard').getByRole('alert')).toBeVisible();await expect(page.getByRole('button',{name:'Use reviewed image mapping',exact:true})).toBeDisabled();await expect(page.getByRole('img',{name:'Interactive board canvas'}).locator('[data-ref]')).toHaveCount(0);
+  await page.getByRole('button',{name:'2 Correspondences',exact:true}).click();await page.getByRole('button',{name:'Pick fit 1 on photograph',exact:true}).click();const canvas=page.getByRole('img',{name:'Interactive board canvas'});await canvas.scrollIntoViewIfNeeded();const p=await canvas.evaluate(n=>{const s=n as SVGSVGElement,p=s.createSVGPoint();p.x=100;p.y=100;const q=p.matrixTransform(s.getScreenCTM()!);return{x:q.x,y:q.y};});await page.mouse.click(p.x,p.y);expect(Number(await page.getByLabel('Control 1 pixel Y').inputValue())).toBeCloseTo(100,3);
+  await page.getByLabel('Control 1 pixel X').fill('100');await page.getByLabel('Control 1 pixel Y').fill('100');await page.getByRole('button',{name:'3 Check / review',exact:true}).click();await page.getByRole('button',{name:'Calculate image registration',exact:true}).click();await expect(page.getByTestId('image-registration-result')).toContainText('Controls pass');await expect(page.getByTestId('image-registration-result')).toContainText('0.025000 mm');await page.getByLabel('I reviewed the physical/source conventions and independent check evidence.').check();await page.getByRole('button',{name:'Use reviewed image mapping',exact:true}).click();await expect(canvas.locator('[data-ref]')).toHaveCount(5);dto=await saved(page);expect(dto.archives.original.source.sha256).toBe(sha(data.fixture.bytes));expect(dto.visualWorkspace.imageRegistration.review.requestSha256).toBe(await imageRequestFingerprint(dto.visualWorkspace.imageRegistration.request));
+});
+test('IR-02 imported edited evidence, within-tolerance coordinate and unbound reviewed flags cannot enable overlays',async({page},info)=>{
+  test.setTimeout(150000);
+  for(const kind of ['evidence','pixel','flag','legacy'] as const){await open(page,kind);const canvas=page.getByRole('img',{name:'Interactive board canvas'});await expect(canvas.locator('[data-ref]')).toHaveCount(0);await page.getByRole('button',{name:'3 Check / review',exact:true}).click();await expect(page.getByTestId('image-review-hold')).toContainText(/invalidated|Legacy|identity/);const dto=await saved(page);expect(dto.visualWorkspace.imageRegistration.decision).toBe('unreviewed');await expect(page.getByRole('button',{name:'Use reviewed image mapping',exact:true})).toBeDisabled();}
+  await page.screenshot({path:info.outputPath('SYNTHETIC-legacy-review-held.png'),fullPage:true});
+  await open(page,'bound');await expect(page.getByRole('img',{name:'Interactive board canvas'}).locator('[data-ref]')).toHaveCount(5);await page.getByRole('button',{name:'3 Check / review',exact:true}).click();await expect(page.getByLabel('Image registration wizard')).toContainText('Previously reviewed; freshly numerically rechecked');await expect(page.getByTestId('image-review-hold')).toHaveCount(0);await page.screenshot({path:info.outputPath('SYNTHETIC-bound-review-fresh-check.png'),fullPage:true});
+});
+test('IR-04 same-source raster rehash cache avoids repeated archive image transfers; source reload verifies again',async({page})=>{
+  test.setTimeout(120000);let imageReads=0;page.on('response',r=>{if(r.url().endsWith('/api/archive')&&(r.headers()['content-type']??'').startsWith('image/'))imageReads++;});
+  await open(page,'bound');expect(imageReads).toBe(1);const canvas=page.getByRole('img',{name:'Interactive board canvas'});
+  for(let i=0;i<3;i++){await page.getByRole('button',{name:'Native coordinates',exact:true}).click();await page.getByRole('button',{name:'Photo gallery',exact:true}).click();await page.getByRole('button',{name:/View SYNTHETIC-grid.png/}).click();await expect(page.getByTestId('preserved-scan-image')).toBeVisible();await expect(canvas.locator('[data-ref]')).toHaveCount(5);}
+  expect(imageReads).toBe(1);await open(page,'bound');await expect(canvas.locator('[data-ref]')).toHaveCount(5);expect(imageReads).toBe(2);
+});

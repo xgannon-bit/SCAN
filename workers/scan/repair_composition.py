@@ -68,7 +68,7 @@ def scalar_trial_accounting(accounting, final_job, approved):
     return rows
 
 
-def compose_preparation(source, layout_path, review, control):
+def compose_preparation(source, layout_path, review, control, *, diagnosis_report=None, diagnosis_receipt=None):
     # Lazy import avoids the preparation adapter's shared report-helper import.
     from .native_preparation_review import run as prepare
     from .worker_cli import dispatch
@@ -98,7 +98,7 @@ def compose_preparation(source, layout_path, review, control):
         for info in before.infolist():
             if info.filename == member:
                 raw = before.read(info)
-                changed = _patch_xml(raw, approved)
+                changed = _patch_xml(raw, approved, progress=True)
                 reverse = reverse_proposals(approved)
                 if _patch_xml(changed, reverse) != raw:
                     raise CaptureBlocked('COMPOSITION_ROLLBACK', 'Scalar rollback did not recover the exact prepared document.')
@@ -178,6 +178,16 @@ def compose_preparation(source, layout_path, review, control):
                 'offline-binding-fov-intents.json': preparation_intents(final_job, final_master, pcb, applied, applied=True),
                 'native-inspection-work.json': fresh.get('nativeInspectionWork'), 'candidate-native-accounting.json': fresh.get('nativeAccounting'),
                 'candidate-duplicate-review.json': fresh.get('nativeDuplicateReview')}
+        if diagnosis_report is not None:
+            from .native_placement_diagnosis import verify_request
+            verified = verify_request(request, diagnosis_report)
+            if verified != diagnosis_receipt:
+                raise CaptureBlocked('DIAGNOSIS_COMPOSITION', 'Composed output diagnosis proof differs from the original source-derived review.')
+            docs['independent-placement-diagnosis.json'] = diagnosis_report
+            docs['independent-diagnosis-receipt.json'] = {**verified, 'acceptedScalars': len(approved),
+                'acceptedPlacementGroups': len({p['path'].rsplit('/Roi/', 1)[0] for p in approved}),
+                'preparationReviewDigest': preparation['reviewDigest'], 'acceptedPreparationDigests': preparation['accepted']}
+            receipt['independentDiagnosis'] = docs['independent-diagnosis-receipt.json']
         for name, value in docs.items(): bundle.writestr(name, json.dumps(value, ensure_ascii=True, indent=2))
         bundle.writestr('component_coverage.csv', _csv(accounting))
         bundle.writestr('remaining_work.csv', _csv([{'reference': item['reference'], 'module': item['module'], 'status': item['status'], 'remaining': item['remaining'], 'omittedWindows': item['omittedWindows'],

@@ -302,7 +302,7 @@ def plan_preparation(job, master, pcb, choices, package_profiles=None):
         'remaining': REMAINING, 'qualificationOnly': True, 'machineExportAllowed': False}))
 
 
-def apply_preparation(job, master, pcb, recipe, accepted_digest):
+def apply_preparation(job, master, pcb, recipe, accepted_digest, *, progress=False):
     fresh = plan_preparation(job, master, pcb, recipe['choices'], recipe.get('packageProfiles'))
     accepted = recipe.get('accepted', [])
     if not isinstance(accepted, list) or not accepted or len(set(accepted)) != len(accepted):
@@ -342,6 +342,14 @@ def apply_preparation(job, master, pcb, recipe, accepted_digest):
         if rollback_records(current, edits) != raw:
             _fail('PREPARATION_PRESERVATION', 'Original XML bytes did not survive insertion rollback exactly.')
         output[role] = current
+    if progress:
+        from .component_progress import component_checked
+        tree = ET.fromstring(output['job'])
+        for item in ready.values():
+            if item['digest'] in accepted:
+                part = _record(tree, 'PartDataList/PartData', 'ID', item['dependencies']['partId'])
+                component_checked('preparation-checked', {key: _text(part, key) for key in ('ID', 'RefID', 'ParentId', 'MasterKey')},
+                    None, {key: _text(_one(part, 'Roi'), key) for key in ('cx', 'cy', 'w', 'h', 'a')})
     return output
 
 

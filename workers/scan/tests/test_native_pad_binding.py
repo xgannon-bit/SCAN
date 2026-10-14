@@ -7,6 +7,8 @@ import unittest
 from xml.etree import ElementTree as ET
 
 from workers.scan.native_pad_binding import diagnose_pad_bindings
+from workers.scan.qualification_candidate import _xml
+from workers.scan.snapshot_capture import CaptureBlocked
 from workers.scan.tests.test_native_preparation import fixtures
 
 
@@ -63,6 +65,38 @@ class NativePadBindingWorkTests(unittest.TestCase):
         self.assertEqual(before, tuple(sha256(x).hexdigest() for x in (self.job, self.master, self.pcb)))
         self.assertEqual(result, self.report())
         self.assertEqual(result['source']['jobSha256'], before[0])
+
+    def test_read_only_schema_opt_in_preserves_each_observed_version(self):
+        for version in ('10.1', '10.2'):
+            job = self.job.replace(b'<JobXmlVersion>10.2', ('<JobXmlVersion>'+version).encode())
+            master = self.master.replace(b'<JobXmlVersion>10.2', ('<JobXmlVersion>'+version).encode())
+            before = tuple(sha256(raw).hexdigest() for raw in (job, master, self.pcb))
+            result = self.report(job=job, master=master)
+            self.assertEqual(result['status'], 'recorded')
+            self.assertTrue(result['inventoryComplete'])
+            self.assertEqual(result['components'][0]['placements'][0]['literalClosedTupleCount'], 2)
+            self.assertFalse(result['bindingPreparationQualified'])
+            self.assertFalse(result['inspectionRepairEstablished'])
+            self.assertEqual(before, tuple(sha256(raw).hexdigest() for raw in (job, master, self.pcb)))
+            self.assertEqual(result['source']['jobSha256'], before[0])
+            self.assertEqual(result['source']['masterSha256'], before[1])
+        # The default used by existing preparation writers remains 10.2.
+        with self.assertRaises(CaptureBlocked):
+            _xml(self.job.replace(b'<JobXmlVersion>10.2', b'<JobXmlVersion>10.1'))
+        _xml(self.job)
+
+    def test_axis_swapped_size_observations_do_not_qualify_pad_or_window_frame(self):
+        for wh in ('0.8,0.4', '0.4,0.8'):
+            j = ET.fromstring(self.job)
+            for pad in j.findall('GerberList/GerberPad'):
+                pad.find('WH').text = wh
+            row = self.report(job=ET.tostring(j))['components'][0]
+            self.assertEqual(row['sourceLayers'][0]['exactNativeSizeOnlyMatchCount'], 2)
+            self.assertNotIn('BINDING_ARTWORK_EQUIVALENCE_UNQUALIFIED', row['holdCodes'])
+            self.assertIn('BINDING_SOURCE_NATIVE_FRAME_UNQUALIFIED', row['holdCodes'])
+            self.assertIn('BINDING_DEPENDENT_WINDOWS_UNVERIFIED', row['holdCodes'])
+            self.assertFalse(row['sourceLayers'][0]['sizeOnlyComparisonEstablishesOwnership'])
+            self.assertFalse(row['bindingPreparationQualified'])
 
     def test_partno_cad_join_and_reference_difference_are_only_an_experiment(self):
         result = self.report()

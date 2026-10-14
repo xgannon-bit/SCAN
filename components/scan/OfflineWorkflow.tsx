@@ -14,7 +14,7 @@ export function OfflineWorkflow() {
         <li><Link href="/intake">Select the complete job and source files</Link>, retaining each revision and the exact main, Temp or backup selection.</li>
         <li><Link href="/intake#bom-intake">Review engineering population and package identity</Link>; keep DNP separate from populated SMT and confirm source revisions.</li>
         <li><Link href="/workspace#source-registration">Compare source origins and reviewed alignment</Link>. Unit, revision or mirror holds need source evidence; they are not automatic CAD defects.</li>
-        <li>Compare duplicate teaching below, prepare supported missing models, then review any local scalar experiment. A survivor preference does not suppress a placement.</li>
+        <li><a href="#native-diagnosis">Derive supported native placement findings</a> from owned source geometry and original CAD controls, then review each exact experimental move. Compare duplicate teaching separately and prepare supported missing models. A survivor preference does not suppress a placement.</li>
         <li>Export accepted preparation and repairs together from Repair Review, or export preparation alone when no scalar change is accepted. Save the project to retain original and candidate bytes, decisions and candidate receipts.</li>
         <li><a href="#candidate-work">Review the reanalyzed generated candidate and component work</a>. Select each reference to see created geometry, partial coverage and remaining Eagle actions.</li>
       </ol>

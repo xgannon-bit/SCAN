@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { candidateRepairWork } from '../lib/scan/candidate-repair-work.ts';
 import { repairProposalGroups, validateRepairSession } from '../lib/scan/repair-session.ts';
+import { preservationIdentity, matchesPreservation } from '../lib/scan/candidate-proof.ts';
 
 // Wholly authored schema-shaped observations; no real board identities or geometry.
 function fixture() {
@@ -25,6 +26,14 @@ test('native-only candidate reanalysis verifies absolute XY edit, Master/assets 
   assert.equal(result.independentlyDiagnosedCorrections,0); assert.equal(result.inspectionRepairEstablished,false);
   assert.equal(repairProposalGroups(f.request).length,1);
   assert.equal(validateRepairSession({request:f.request,history:[],work:[]}).request.evidence[0].independentSupport,false);
+});
+test('fresh proof is bound to original/candidate members and the complete request, not saved labels', () => {
+  const f=fixture(), proof={ identity: preservationIdentity(f.original.preflight,f.candidate.preflight,f.request), work: candidateRepairWork(f.original,f.candidate,f.request,'f'.repeat(64)) };
+  assert.equal(matchesPreservation(proof,f.original.preflight,f.candidate.preflight,f.request),true);
+  assert.equal(matchesPreservation(null,f.original.preflight,f.candidate.preflight,f.request),false);
+  for(const mutate of [x=>x.request.acceptances.pop(),x=>x.request.evidence[0].summary='Changed evidence',x=>x.candidate.preflight.source.sha256='9'.repeat(64),x=>x.original.preflight.selection.job.member='Temp.xml',x=>x.candidate.preflight.selection.job.sha256='8'.repeat(64)]) {
+    const x=structuredClone(f);mutate(x);assert.equal(matchesPreservation(proof,x.original.preflight,x.candidate.preflight,x.request),false);
+  }
 });
 test('reanalysis refuses stale source, partial XY decisions, wrong identity, changed teaching, Master and unknown bytes', () => {
   for (const mutate of [
